@@ -155,6 +155,7 @@ export function draft(repo: string, rec: IssueRecord, plugin: string): { title: 
     '**Environment**',
     `- platform: \`${rec.env.platform}\``,
     `- node: \`${rec.env.node}\``,
+    ...(rec.resolution ? ['', '**Fix that worked**', rec.resolution.note] : []),
     '',
     '<!-- filed by lceda_report; paths and tokens were redacted before writing this body -->',
   ].join('\n')
@@ -163,21 +164,103 @@ export function draft(repo: string, rec: IssueRecord, plugin: string): { title: 
   return { title, text, prefilled }
 }
 
-function missingTool(e: unknown): boolean {
-  return e instanceof Error && e.message.startsWith('cannot start "')
+/** Words worth searching an issue tracker with: long enough, not a path, not noise. */
+function keywords(rec: IssueRecord): string[] {
+  const words = `${rec.tool} ${rec.error}`
+    .replace(/<path>|<token>|[\\/][^\s]*/g, ' ')
+    .toLowerCase()
+    .match(/[a-z_][a-z0-9_.-]{3,}/g)
+  if (!words) return []
+  return [...new Set(words)].slice(0, 8)
+}
+
+export function issueQuery(rec: IssueRecord): string {
+  return keywords(rec).join(' ')
+}
+
+/** Records already on this machine that look like the same failure. */
+export function similarLocal(dir: string, rec: IssueRecord): IssueRecord[] {
+  const want = new Set(keywords(rec))
+  return listIssues(dir).filter((other) => {
+    if (other.id === rec.id || other.tool !== rec.tool) return false
+    const have = keywords(other)
+    const overlap = have.filter((w) => want.has(w)).length
+    return overlap >= Math.max(2, Math.min(3, want.size))
+  })
+}
+
+export interface RemoteIssue {
+  number: number
+  title: string
+  url: string
+  state: string
+  body: string
+}
+
+/** Search the upstream tracker. Only `gh` talks to the network; the plugin never does. */
+export async function searchIssues(
+  repo: string,
+  rec: IssueRecord,
+  exec: (cmd: string, args: string[]) => Promise<string> = run,
+): Promise<RemoteIssue[]> {
+  const query = issueQuery(rec)
+  if (!query) return []
+  const out = await exec('gh', [
+    'issue',
+    'list',
+    '--repo',
+    repo,
+    '--state',
+    'all',
+    '--limit',
+    '5',
+    '--search',
+    query,
+    '--json',
+    'number,title,url,state,body',
+  ])
+  try {
+    return JSON.parse(out) as RemoteIssue[]
+  } catch {
+    return []
+  }
+}
+
+/** Browser search for the same query, used when `gh` is not installed. */
+export function searchUrl(repo: string, rec: IssueRecord): string {
+  return `https://github.com/${repo}/issues?q=${encodeURIComponent(issueQuery(rec) || rec.tool)}`
 }
 
 export interface Submission {
+  /** true only when a new issue was created. */
   filed: boolean
   issueUrl: string
+  /** An existing issue that already describes this failure; the record was folded into it. */
+  duplicateOf: string
+  /** Our fix was posted as a comment on that existing issue. */
+  commented: boolean
   /** Opens the same issue in a browser; used when `gh` is not installed (no token needed). */
   prefilled: string
   hint: string
 }
 
+function missingTool(e: unknown): boolean {
+  return e instanceof Error && e.message.startsWith('cannot start "')
+}
+
+/** First search result that reads like the same failure (shared keywords in the title). */
+function sameFailure(results: RemoteIssue[], rec: IssueRecord): RemoteIssue | undefined {
+  const want = new Set(keywords(rec))
+  return results.find((r) => {
+    const have = r.title.toLowerCase().match(/[a-z_][a-z0-9_.-]{3,}/g) ?? []
+    return have.filter((w) => want.has(w)).length >= 2
+  })
+}
+
 /**
- * File the record as a GitHub issue through the user's own `gh`. Without `gh` nothing
- * breaks: the same title/body come back as a prefilled URL.
+ * Feed a record upstream through the user's own `gh`: search first, fold into a matching
+ * open issue (commenting our fix), and only create when nothing matches. Without `gh`
+ * the same title/body come back as a prefilled URL — nothing is sent.
  */
 export async function submitIssue(
   dir: string,
@@ -187,16 +270,37 @@ export async function submitIssue(
   exec: (cmd: string, args: string[]) => Promise<string> = run,
 ): Promise<Submission> {
   const { title, text, prefilled } = draft(repo, rec, plugin)
+  const base = { filed: false, issueUrl: '', duplicateOf: '', commented: false, prefilled, hint: '' }
+
+  let dup: RemoteIssue | undefined
+  try {
+    dup = sameFailure(await searchIssues(repo, rec, exec), rec)
+  } catch (e) {
+    if (!missingTool(e)) throw e // a broken gh (auth, network) must surface, not be swallowed
+  }
+
+  if (dup) {
+    let commented = false
+    if (rec.resolution) {
+      try {
+        await exec('gh', ['issue', 'comment', dup.url, '--body', `Same failure here. Fix that worked:\n\n${rec.resolution.note}`])
+        commented = true
+      } catch (e) {
+        if (!missingTool(e)) throw e
+      }
+    }
+    saveIssue(dir, { ...rec, issueUrl: dup.url })
+    return { ...base, issueUrl: dup.url, duplicateOf: dup.url, commented }
+  }
+
   try {
     const url = await exec('gh', ['issue', 'create', '--repo', repo, '--title', title, '--body', text])
     saveIssue(dir, { ...rec, issueUrl: url })
-    return { filed: true, issueUrl: url, prefilled, hint: '' }
+    return { ...base, filed: true, issueUrl: url }
   } catch (e) {
     if (!missingTool(e)) throw e
     return {
-      filed: false,
-      issueUrl: '',
-      prefilled,
+      ...base,
       hint: 'gh is not installed, so nothing was sent: open prefilled in a browser to file it, or install gh (https://cli.github.com) and rerun submit',
     }
   }

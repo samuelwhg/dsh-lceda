@@ -179,25 +179,36 @@ Declared capabilities: `tools:register`, `fs:read`, `fs:write`, `subprocess`.
 
 ## Reporting problems
 
-Unexpected failures are recorded automatically, nothing is sent on its own:
+The loop is borrow-first, then report problem *and* fix together. Nothing leaves the
+machine on its own.
 
-- Every `lceda_*` tool wraps its work in a failure recorder. When one fails for a
-  reason other than your configuration (errors that name a fix, e.g. a missing
-  `projectPath`, are not noise-filed), a record lands in `<workDir>/issues/<id>.json`
-  and the tool error names the id.
-- Before a record is written, the text is redacted: your home dir becomes `~`,
-  absolute paths become `<path>`, `ghp_*` / `github_pat_*` tokens become `<token>`.
-  Arguments are kept but truncated and redacted the same way.
-- `lceda_report { "action": "list" }` shows the ledger; `{ "action": "submit", "id": ... }`
-  files the newest (or that) record as a GitHub issue against `reportRepo` using the
-  `gh` you are already logged in with. No `gh` installed? Nothing breaks: `submit`
-  hands back the same title and body as a prefilled `github.com/.../issues/new?title=…`
-  URL — no token, no network from the plugin.
-- `{ "action": "solve", "id": ..., "note": "..." }` stores what fixed it locally and
-  comments that on the issue when one exists.
+1. **Recorded automatically.** Every `lceda_*` tool wraps its work in a failure
+   recorder. When one fails for a reason other than your configuration (errors that
+   name a fix, e.g. a missing `projectPath`, are not filed as noise), a record lands in
+   `<workDir>/issues/<id>.json` and the tool error names the id. Before the record is
+   written the text is redacted: home dir → `~`, absolute paths → `<path>`,
+   `ghp_*` / `github_pat_*` → `<token>`; arguments are truncated and redacted the same way.
+2. **Search before debugging.** `lceda_report { "action": "search", "id": ... }` looks
+   for the same failure twice-ish: in the local ledger (with the fix someone already
+   recorded) and in the upstream tracker (`gh issue list --search <tool + error words>`).
+   A hit with a fix is cheaper than debugging — apply it, then `solve`.
+3. **Then solve.** `{ "action": "solve", "id": ..., "note": "cause + what fixed it" }`
+   stores the fix in the record.
+4. **Then feed it back once.** `{ "action": "submit", "id": ... }` searches upstream for a
+   matching issue: a hit gets your fix posted as a comment (no duplicate issue), a miss
+   creates one issue whose body carries the error, the call, the environment *and* the
+   fix that worked. Either way the record keeps the issue URL.
 
-A good agent habit: after the same failure shows up twice, propose `submit`; after
-the fix works, call `solve` so the next person inherits the answer.
+No `gh` installed? Nothing breaks: `search` returns the browser search URL and
+`submit` returns the same title/body as a prefilled `github.com/.../issues/new?title=…`
+link — no token, no network from the plugin. With `gh`, `submit` uses the login you
+already have; the plugin never holds a credential.
+
+`reportRepo` (default `samuelwhg/dsh-lceda`, empty disables the upstream half) decides
+where step 2 and 4 look.
+
+A good agent habit: on a failure, `search` first; propose `submit` once the fix is known
+or the same failure has shown up twice.
 
 ## Upgrade, rollback, uninstall
 

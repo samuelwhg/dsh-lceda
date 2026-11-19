@@ -10,7 +10,18 @@ import { Config } from './config'
 import type { Config as ConfigShape } from './config'
 import { closeSession, guardGui, invoke, listSessions, openHeadless, readyPrelude, RETRY_GETALL } from './cli'
 import { b64ToBuffer, connectivity, diffNets, normalizeCsv, parseProtel2 } from './decode'
-import { countable, issuesDir, listIssues, loadIssue, recordFailure, solveIssue, submitIssue } from './issues'
+import {
+  countable,
+  issuesDir,
+  listIssues,
+  loadIssue,
+  recordFailure,
+  searchIssues,
+  searchUrl,
+  similarLocal,
+  solveIssue,
+  submitIssue,
+} from './issues'
 import type { ConnPad, ConnSeg, ConnVia } from './decode'
 
 type Json = null | boolean | number | string | Json[] | { [k: string]: Json }
@@ -165,9 +176,9 @@ export function apply(ctx: Context, config: ConfigShape): void {
 
   ctx.tools.register(guarded(cfg, {
     name: 'lceda_report',
-    description: 'Failure ledger: unexpected lceda_* errors are recorded under <workDir>/issues with paths and tokens redacted. `list` shows the records, `submit` files one as a GitHub issue through your own authenticated gh CLI (nothing is sent without it), `solve` attaches what fixed it and comments that on the issue.',
+    description: 'Failure ledger: unexpected lceda_* errors are recorded under <workDir>/issues with paths and tokens redacted. `list` shows the records; `search` looks for the same failure locally and in the GitHub tracker (borrow the fix if it is known); `solve` stores the fix; `submit` folds the problem+fix into a matching issue or files a new one, through your own authenticated gh CLI (nothing is sent without it).',
     parameters: {
-      action: { type: 'string', required: true, description: 'list | submit | solve' },
+      action: { type: 'string', required: true, description: 'list | search | solve | submit' },
       id: { type: 'string', description: 'Record id from list; default is the newest record.' },
       note: { type: 'string', description: 'solve: one or two sentences on what fixed it.' },
     },
@@ -189,22 +200,57 @@ export function apply(ctx: Context, config: ConfigShape): void {
           })),
         }
       }
-      if (args.action !== 'submit' && args.action !== 'solve') {
-        throw new Error(`lceda_report action must be list, submit or solve, got "${args.action}" (see README.md#tools)`)
+      if (args.action !== 'search' && args.action !== 'submit' && args.action !== 'solve') {
+        throw new Error(`lceda_report action must be list, search, solve or submit, got "${args.action}" (see README.md#tools)`)
       }
       const id = args.id ?? listIssues(dir)[0]?.id
       if (!id) throw new Error(`nothing recorded yet under ${dir}: no failure to ${args.action} (see README.md#reporting-problems)`)
+      if (args.action === 'search') {
+        const rec = loadIssue(dir, id)
+        const local = similarLocal(dir, rec).map((i) => ({
+          id: i.id,
+          tool: i.tool,
+          error: i.error.split('\n')[0],
+          resolution: i.resolution?.note ?? '',
+          issueUrl: i.issueUrl ?? '',
+        }))
+        const fixed = local.find((i) => i.resolution)
+        if (!cfg.reportRepo) {
+          return { id, local, remote: [], hint: 'config reportRepo is empty: no upstream tracker to search (see README.md#configuration)' }
+        }
+        let remote: Array<{ number: number; title: string; url: string; state: string }> = []
+        let hint = 'nothing similar upstream: debug it, then lceda_report solve + submit so the next person inherits the fix'
+        try {
+          remote = (await searchIssues(cfg.reportRepo, rec)).map((r) => ({
+            number: r.number,
+            title: r.title,
+            url: r.url,
+            state: r.state,
+          }))
+        } catch (e) {
+          hint = `could not reach the tracker (${(e as Error).message}); browse ${searchUrl(cfg.reportRepo, rec)} instead`
+        }
+        if (remote.length) hint = 'read the matching issues before debugging; if one explains it, apply that fix and run solve'
+        if (fixed) hint = `local record ${fixed.id} already has a fix: ${fixed.resolution}`
+        const own = rec.resolution?.note
+        if (own) hint = `this failure is already solved here: ${own} — lceda_report submit feeds it back`
+        return { id, local, resolution: own ?? '', remote, hint }
+      }
       if (args.action === 'submit') {
         if (!cfg.reportRepo) {
           throw new Error('config reportRepo is empty: set it to "owner/name" to file issues upstream (see README.md#configuration)')
         }
         const rec = loadIssue(dir, id)
-        if (rec.issueUrl) return { id, filed: true, issueUrl: rec.issueUrl, prefilled: '', hint: '', alreadyFiled: true }
+        if (rec.issueUrl) {
+          return { id, filed: true, issueUrl: rec.issueUrl, duplicateOf: '', commentedOnDuplicate: false, prefilled: '', hint: '', alreadyFiled: true }
+        }
         const sub = await submitIssue(dir, cfg.reportRepo, rec, PLUGIN)
         return {
           id,
           filed: sub.filed,
           issueUrl: sub.issueUrl,
+          duplicateOf: sub.duplicateOf,
+          commentedOnDuplicate: sub.commented,
           prefilled: sub.prefilled,
           hint: sub.hint,
           alreadyFiled: false,

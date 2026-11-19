@@ -2,7 +2,19 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { countable, draft, issuesDir, listIssues, loadIssue, recordFailure, redact, solveIssue, submitIssue } from '../src/issues'
+import {
+  countable,
+  draft,
+  issueQuery,
+  issuesDir,
+  listIssues,
+  loadIssue,
+  recordFailure,
+  redact,
+  similarLocal,
+  solveIssue,
+  submitIssue,
+} from '../src/issues'
 
 describe('redact', () => {
   it('strips home, absolute paths and tokens but keeps the message', () => {
@@ -80,5 +92,59 @@ describe('submission without gh', () => {
     expect(sub.hint).toContain('gh is not installed')
 
     await expect(submitIssue(dir, 'o/r', rec, rec.plugin, () => Promise.reject(new Error('gh exited 1: not logged in')))).rejects.toThrow(/not logged in/)
+  })
+})
+
+describe('the borrow-then-report loop', () => {
+  const rec = {
+    id: '20261119T010000Z-lceda_check',
+    at: '2026-11-19T01:00:00.000Z',
+    plugin: 'dsh-lceda@0.1.0',
+    tool: 'lceda_check',
+    error: 'drc failed: session crashed while checking copper',
+    input: '{"doc":"pcb","what":"drc"}',
+    env: { platform: 'linux', node: 'v22.0.0' },
+  }
+
+  it('queries the tracker with the tool and the distinctive error words', () => {
+    expect(issueQuery(rec)).toContain('lceda_check')
+    expect(issueQuery(rec)).toContain('crashed')
+  })
+
+  it('finds a local record of the same failure', () => {
+    const dir = issuesDir(fs.mkdtempSync(path.join(os.tmpdir(), 'lceda-similar-')))
+    recordFailure({ dir, plugin: rec.plugin, tool: rec.tool, input: rec.input, error: new Error('drc failed: session crashed while checking copper') })
+    recordFailure({ dir, plugin: rec.plugin, tool: 'lceda_export', input: '{}', error: new Error('gerber export blew up') })
+    const hits = similarLocal(dir, { ...rec, id: 'other' })
+    expect(hits.map((h) => h.tool)).toEqual(['lceda_check'])
+  })
+
+  it('folds into a matching issue and comments the fix instead of opening a new one', async () => {
+    const dir = issuesDir(fs.mkdtempSync(path.join(os.tmpdir(), 'lceda-dup-')))
+    recordFailure({ dir, plugin: rec.plugin, tool: rec.tool, input: rec.input, error: rec.error })
+    const withFix = { ...rec, resolution: { at: '2026-11-19T02:00:00.000Z', note: 'clean the zombie session first' } }
+    const calls: string[][] = []
+    const exec = (cmd: string, args: string[]) => {
+      calls.push([cmd, ...args])
+      if (args[0] === 'issue' && args[1] === 'list') {
+        return Promise.resolve(JSON.stringify([
+          { number: 7, title: 'lceda_check: drc failed: session crashed', url: 'https://github.com/o/r/issues/7', state: 'OPEN', body: 'same' },
+        ]))
+      }
+      return Promise.resolve('')
+    }
+    const sub = await submitIssue(dir, 'o/r', withFix, rec.plugin, exec)
+    expect(sub.filed).toBe(false)
+    expect(sub.duplicateOf).toBe('https://github.com/o/r/issues/7')
+    expect(sub.commented).toBe(true)
+    expect(calls.some((c) => c.includes('create'))).toBe(false) // no duplicate issue filed
+    expect(calls.some((c) => c.includes('comment'))).toBe(true)
+    expect(loadIssue(dir, rec.id).issueUrl).toBe('https://github.com/o/r/issues/7')
+  })
+
+  it('carries the fix in the body of a brand-new issue', () => {
+    const { text } = draft('o/r', { ...rec, resolution: { at: '2026-11-19T02:00:00.000Z', note: 'clean first' } }, rec.plugin)
+    expect(text).toContain('**Fix that worked**')
+    expect(text).toContain('clean first')
   })
 })

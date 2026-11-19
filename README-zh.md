@@ -160,21 +160,28 @@ LCEDA Pro 升级可能改名或移除这些调用；工具开始报 `... is not 
 
 ## 问题上报
 
-意外故障会自动记录在本地，不会自己外发：
+顺序是「先借鉴，再把问题+解法一起反哺」，且不会自己外发任何东西。
 
-- 每个 `lceda_*` 工具都套了故障记录器。失败原因不属于配置问题（自带修法的报错，例如
-  缺 `projectPath`，不会被记成噪音）时，会在 `<workDir>/issues/<id>.json` 落一条记录，
-  工具报错里同时给出这个 id。
-- 落盘前先脱敏：家目录变 `~`、绝对路径变 `<path>`、`ghp_*` / `github_pat_*` token 变
-  `<token>`；入参同样截断并脱敏。
-- `lceda_report { "action": "list" }` 看清单；`{ "action": "submit", "id": ... }` 把最新
-  （或指定）一条通过你已登录的 `gh` 提到 `reportRepo`。没装 `gh` 也不会坏：`submit` 会把
-  同样的标题和正文拼成预填好的 `github.com/.../issues/new?title=…` 链接返回——不用
-  token，插件自己也不发任何网络请求。
-- `{ "action": "solve", "id": ..., "note": "..." }` 先记下解决办法，已有 issue 时再评论上去。
+1. **自动记录。** 每个 `lceda_*` 工具都套了故障记录器。失败原因不属于配置问题（自带
+   修法的报错，例如缺 `projectPath`，不会被记成噪音）时，会在 `<workDir>/issues/<id>.json`
+   落一条记录，工具报错里同时给出这个 id。落盘前先脱敏：家目录变 `~`、绝对路径变
+   `<path>`、`ghp_*` / `github_pat_*` 变 `<token>`；入参同样截断并脱敏。
+2. **先查再调。** `lceda_report { "action": "search", "id": ... }` 两边都查：本地记录
+   （连同别人已记下的解法）和上游 Issues（`gh issue list --search <工具名+报错关键词>`）。
+   查到带解法的就用它，别重复踩。
+3. **再解决。** `{ "action": "solve", "id": ..., "note": "原因 + 怎么修好的" }` 把解法
+   存回这条记录。
+4. **最后只反哺一次。** `{ "action": "submit", "id": ... }` 先在上游搜同类：命中就把你的
+   解法作为评论贴到那个 issue（不重复开），没命中才新建一条，正文同时带报错、调用、
+   环境**和**有效解法。两种情况记录里都会留下 issue URL。
 
-给 agent 的习惯：同一故障出现两次就建议 `submit`；解决后用 `solve` 留下结论，下一个人
-就不用重踩。
+没装 `gh` 也不会坏：`search` 返回浏览器搜索链接，`submit` 返回预填好的
+`github.com/.../issues/new?title=…` 链接——不用 token，插件自己不发任何网络请求。装了
+`gh` 就走你已登录的身份，插件从不持有凭据。
+
+`reportRepo`（默认 `samuelwhg/dsh-lceda`，留空即关闭上游那半）决定第 2、4 步去哪里查。
+
+给 agent 的习惯：遇到故障先 `search`；确定解法、或同一故障出现两次，就提议 `submit`。
 
 ## 升级、回滚、卸载
 

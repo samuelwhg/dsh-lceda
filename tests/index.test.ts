@@ -157,5 +157,20 @@ describe('failure capture', () => {
     expect(body).not.toContain('ACME') // redacted before it hits disk
     expect(body).toContain('<path>')
     expect(JSON.parse(body).tool).toBe('lceda_session')
+
+    // the borrow-then-report loop: solve here, then search reports that fix back to the agent
+    const solved = (await tools.lceda_report.execute({ action: 'solve', note: 'clean stale sessions first' })) as {
+      resolution?: string
+    }
+    expect(solved.resolution).toBe('clean stale sessions first')
+    const search = (await tools.lceda_report.execute({ action: 'search' })) as {
+      resolution?: string
+      hint: string
+      local: unknown[]
+    }
+    expect(search.resolution).toBe('clean stale sessions first')
+    expect(search.hint).toContain('already solved here')
+    expect(search.hint).toContain('feeds it back')
+    expect(search.local).toEqual([]) // only this record exists, and it is not its own duplicate
   })
 })

@@ -15,7 +15,7 @@ description: 嘉立创 EDA Pro（LCEDA）headless 开发流程与红线。当用
 - 铺铜：`lceda_pour` rebuild / connectMode。**create 不填充**，必须 rebuildCopperRegion；connectMode 0=不连接 1=十字 2=实心，持久化只能单参 overwriteCurrentRuleConfiguration(c)。
 - 核对：`lceda_check` drc/nets/conn。headless 的 pcb_Drc.check 可能崩会话（工具已回退 getDrcResult）；**conn 不计铺铜**，纯铺铜连接的 GND 焊盘读作孤立属预期；headless create 的线/孔网表绑定可能失效→对全部 line/via 跑 modify(id,{net:同名}) 重绑后 DRC 才准。
 - 导出：`lceda_export`（CSV 自动 UTF-16LE→UTF-8）。
-- 故障：意外报错已自动落进 `<workDir>/issues` 并在错误里给出 id。同一故障出现两次就提议 `lceda_report { "action": "submit", "id": ... }`（走用户自己的 `gh`，没装 gh 会给预填链接；先问一句）；解决后 `{ "action": "solve", "id": ..., "note": "原因+改法" }` 留下结论。配置类报错（带 README 锚点）不用上报，按提示改配置。
+- 故障：意外报错已自动落进 `<workDir>/issues` 并在错误里给出 id。**先 `lceda_report { "action": "search", "id": ... }`**——本地和上游 Issues 都查一遍，查到带解法的直接照做；没有就自己调，修好后 `{ "action": "solve", "id": ..., "note": "原因+改法" }`；最后 `{ "action": "submit", "id": ... }` 把问题+解法一起反哺（命中同类会折叠成评论，不重复开；先问用户一句）。没装 `gh` 会给预填链接。配置类报错（带 README 锚点）不用上报，按提示改配置。
 
 ## API 面（只保证这些）
 工具只调用已验证的 `eda.*`：`dmt_EditorControl.openDocument|waitForDocumentReady`、`pcb_Document.save|clearRouting|importAutoRouteSesFile`、`sch_Document.save`、`pcb_PrimitiveComponent/Line/Via/Pour.getAll`、`pcb_PrimitiveComponent.getAllPinsByPrimitiveId`、`sch_PrimitiveWire.create`、`pcb_Drc.check|getDrcResult|getCurrentRuleConfiguration|overwriteCurrentRuleConfiguration`、`sch_Netlist.getNetlist`、`pcb_ManufactureData.getDsnFile`、`sys_FileSystem.readFileFromFileSystem`。
