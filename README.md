@@ -97,6 +97,27 @@ write while the GUI holds the project, never overwrite `PCB1.epcb2` wholesale, n
 pour solid copper on inner signal layers, always re-check all pad nets after
 `importChanges`, hand back to the GUI for symbols/teardrops/dialogs).
 
+## API surface and scope
+
+LCEDA Pro publishes no complete plugin SDK, so this plugin drives the editor's in-page
+`eda` object from JavaScript and only relies on the API families below — the ones
+verified against a real LCEDA Pro build:
+
+| family | calls used |
+| --- | --- |
+| editor / documents | `dmt_EditorControl.openDocument`, `waitForDocumentReady`; `pcb_Document.save` / `clearRouting` / `importAutoRouteSesFile`; `sch_Document.save` |
+| primitives | `pcb_PrimitiveComponent.getAll` / `getAllPinsByPrimitiveId`, `pcb_PrimitiveLine.getAll`, `pcb_PrimitiveVia.getAll`, `pcb_PrimitivePour.getAll`, `sch_PrimitiveWire.create` |
+| checks | `pcb_Drc.check` / `getDrcResult` / `getCurrentRuleConfiguration` / `overwriteCurrentRuleConfiguration` |
+| netlist, manufacture, fs | `sch_Netlist.getNetlist`, `pcb_ManufactureData.getDsnFile` and the export entry points, `sys_FileSystem.readFileFromFileSystem` |
+
+Everything else is out of scope: symbol creation, footprint reassignment, teardrops and
+some dialogs are GUI-only, and the tools report a handoff instead of faking success.
+`lceda_run` can execute arbitrary editor JS, so a call outside this table may still work
+on your build — nothing is promised. Probe before relying on one
+(`lceda_run {"doc":"pcb","code":"Object.keys(eda)"}`) and treat a missing method as
+unavailable. LCEDA Pro updates can rename or drop these calls; when a tool starts
+failing with `... is not a function`, that is the signal.
+
 ## Permissions
 
 Declared capabilities: `tools:register`, `fs:read`, `fs:write`, `subprocess`.
@@ -133,6 +154,7 @@ sessions it owns.
 | `no project path` | pass a `.eprj3` path to `lceda_session open` or set `projectPath` |
 | `config pcbUuid is not set` / `schUuid` | set the document id for that board/page (see Configuration) |
 | `user GUI session open (...)` | close the GUI, or set `allowGuiConcurrent: true` knowing `.eprj3` sync can overwrite |
+| a tool fails with `... is not a function` | your LCEDA Pro build renamed or dropped that call: probe `lceda_run {"code":"Object.keys(eda)"}`, see [API surface and scope](#api-surface-and-scope) |
 | `getAll` returns `null`, or the session dies | `lceda_session` `{ "action": "clean" }`, retry; headless canvas subscriptions are fragile |
 | DRC crashes the session | `lceda_check` falls back to `getDrcResult`; run `drc` in the GUI for an authoritative report |
 | `lceda_route` fails: jar/java missing | set `freeroutingJar`, `javaBin`; `java -version` must work in the same shell |

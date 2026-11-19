@@ -16,6 +16,10 @@ description: 嘉立创 EDA Pro（LCEDA）headless 开发流程与红线。当用
 - 核对：`lceda_check` drc/nets/conn。headless 的 pcb_Drc.check 可能崩会话（工具已回退 getDrcResult）；**conn 不计铺铜**，纯铺铜连接的 GND 焊盘读作孤立属预期；headless create 的线/孔网表绑定可能失效→对全部 line/via 跑 modify(id,{net:同名}) 重绑后 DRC 才准。
 - 导出：`lceda_export`（CSV 自动 UTF-16LE→UTF-8）。
 
+## API 面（只保证这些）
+工具只调用已验证的 `eda.*`：`dmt_EditorControl.openDocument|waitForDocumentReady`、`pcb_Document.save|clearRouting|importAutoRouteSesFile`、`sch_Document.save`、`pcb_PrimitiveComponent/Line/Via/Pour.getAll`、`pcb_PrimitiveComponent.getAllPinsByPrimitiveId`、`sch_PrimitiveWire.create`、`pcb_Drc.check|getDrcResult|getCurrentRuleConfiguration|overwriteCurrentRuleConfiguration`、`sch_Netlist.getNetlist`、`pcb_ManufactureData.getDsnFile`、`sys_FileSystem.readFileFromFileSystem`。
+表外 API 不保证存在：先 `Object.keys(eda)` 探测再用；报 `is not a function` 就是该 LCEDA 版本改了接口，handoff 或回报版本，别换名字硬猜。
+
 ## 红线
 1. **用户 GUI 开着时不做写操作**（.eprj3 双向同步会互相覆盖）；工具默认拒写，除非配置 allowGuiConcurrent。
 2. **勿整文件覆盖 PCB1.epcb2**：外壳/螺丝柱/安装孔等 shell 对象只存在于某些 revisions，整文件覆盖会丢改型；合并用行块 splice。

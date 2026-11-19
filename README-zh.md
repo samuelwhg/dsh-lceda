@@ -89,6 +89,24 @@ dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.gi
 `PCB1.epcb2`、内层有信号时不铺实心铜、`importChanges` 后必核对全部焊盘网表、
 符号/泪滴/对话框交回 GUI）。
 
+## API 面与能力范围
+
+LCEDA Pro 没有完整公开插件 SDK，本插件是通过 JavaScript 驱动编辑器内的 `eda` 对象，
+只保证下列 API 家族可用——这些是在真实 LCEDA Pro 构建上验证过的：
+
+| 家族 | 用到的调用 |
+| --- | --- |
+| 编辑器 / 文档 | `dmt_EditorControl.openDocument`、`waitForDocumentReady`；`pcb_Document.save` / `clearRouting` / `importAutoRouteSesFile`；`sch_Document.save` |
+| 图元 | `pcb_PrimitiveComponent.getAll` / `getAllPinsByPrimitiveId`、`pcb_PrimitiveLine.getAll`、`pcb_PrimitiveVia.getAll`、`pcb_PrimitivePour.getAll`、`sch_PrimitiveWire.create` |
+| 检查 | `pcb_Drc.check` / `getDrcResult` / `getCurrentRuleConfiguration` / `overwriteCurrentRuleConfiguration` |
+| 网表 / 制造 / 文件 | `sch_Netlist.getNetlist`、`pcb_ManufactureData.getDsnFile` 及导出入口、`sys_FileSystem.readFileFromFileSystem` |
+
+其余都不在范围内：符号创建、改封装引用、泪滴和部分对话框只能在 GUI 做，工具会返回
+handoff 而不是假装成功。`lceda_run` 能执行任意编辑器 JS，所以表外的调用在你的构建上
+也许能跑，但没有任何保证——先探测
+（`lceda_run {"doc":"pcb","code":"Object.keys(eda)"}`），方法不存在就当不可用。
+LCEDA Pro 升级可能改名或移除这些调用；工具开始报 `... is not a function` 就是这个信号。
+
 ## 权限
 
 声明能力：`tools:register`、`fs:read`、`fs:write`、`subprocess`。
@@ -121,6 +139,7 @@ dsh plugin --profile <profile> remove dsh-lceda                                 
 | `no project path` | 给 `lceda_session open` 传 `.eprj3` 路径，或设 `projectPath` |
 | `config pcbUuid is not set` / `schUuid` | 为对应板/页设置文档 id（见「配置」） |
 | `user GUI session open (...)` | 关 GUI，或明知 `.eprj3` 同步会覆盖再设 `allowGuiConcurrent: true` |
+| 工具报 `... is not a function` | 你的 LCEDA Pro 版本改名或移除了该调用：先用 `lceda_run {"code":"Object.keys(eda)"}` 探测，见「API 面与能力范围」 |
 | `getAll` 返回 `null` 或会话直接挂 | `lceda_session` `{ "action": "clean" }` 后重试；无头 canvas 订阅很脆 |
 | DRC 把会话搞崩 | `lceda_check` 会回退到 `getDrcResult`；要权威报告在 GUI 里跑 `drc` |
 | `lceda_route` 报 jar/java 缺失 | 设 `freeroutingJar`、`javaBin`，同一 shell 里 `java -version` 要能跑 |
