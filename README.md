@@ -190,8 +190,11 @@ Unexpected failures are recorded automatically, nothing is sent on its own:
   Arguments are kept but truncated and redacted the same way.
 - `lceda_report { "action": "list" }` shows the ledger; `{ "action": "submit", "id": ... }`
   files the newest (or that) record as a GitHub issue against `reportRepo` using the
-  `gh` you are already logged in with; `{ "action": "solve", "id": ..., "note": "..." }`
-  stores what fixed it and comments that on the issue when one exists.
+  `gh` you are already logged in with. No `gh` installed? Nothing breaks: `submit`
+  hands back the same title and body as a prefilled `github.com/.../issues/new?title=…`
+  URL — no token, no network from the plugin.
+- `{ "action": "solve", "id": ..., "note": "..." }` stores what fixed it locally and
+  comments that on the issue when one exists.
 
 A good agent habit: after the same failure shows up twice, propose `submit`; after
 the fix works, call `solve` so the next person inherits the answer.

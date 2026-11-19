@@ -136,8 +136,10 @@ export function run(cmd: string, args: string[]): Promise<string> {
   })
 }
 
-function body(rec: IssueRecord, plugin: string): string {
-  return [
+/** Issue title and markdown body for one record, plus a browser fallback with no credentials. */
+export function draft(repo: string, rec: IssueRecord, plugin: string): { title: string; text: string; prefilled: string } {
+  const title = `${rec.tool}: ${rec.error.split('\n')[0]?.slice(0, 120) ?? 'failed'}`
+  const text = [
     `\`${rec.tool}\` failed in ${plugin} (${rec.id}).`,
     '',
     '**Error**',
@@ -156,23 +158,66 @@ function body(rec: IssueRecord, plugin: string): string {
     '',
     '<!-- filed by lceda_report; paths and tokens were redacted before writing this body -->',
   ].join('\n')
+  const prefilled =
+    `https://github.com/${repo}/issues/new?title=${encodeURIComponent(title)}&body=${encodeURIComponent(text.slice(0, 3000))}`
+  return { title, text, prefilled }
 }
 
-/** File the record as a GitHub issue through the user's `gh`; returns the issue URL. */
-export async function submitIssue(dir: string, repo: string, rec: IssueRecord, plugin: string): Promise<string> {
-  const title = `${rec.tool}: ${rec.error.split('\n')[0]?.slice(0, 120) ?? 'failed'}`
-  const url = await run('gh', ['issue', 'create', '--repo', repo, '--title', title, '--body', body(rec, plugin)])
-  const updated = { ...rec, issueUrl: url }
-  saveIssue(dir, updated)
-  return url
+function missingTool(e: unknown): boolean {
+  return e instanceof Error && e.message.startsWith('cannot start "')
 }
 
-/** Attach the fix, and comment it on the upstream issue when one was filed. */
-export async function solveIssue(dir: string, id: string, note: string): Promise<{ record: IssueRecord; commented: boolean }> {
+export interface Submission {
+  filed: boolean
+  issueUrl: string
+  /** Opens the same issue in a browser; used when `gh` is not installed (no token needed). */
+  prefilled: string
+  hint: string
+}
+
+/**
+ * File the record as a GitHub issue through the user's own `gh`. Without `gh` nothing
+ * breaks: the same title/body come back as a prefilled URL.
+ */
+export async function submitIssue(
+  dir: string,
+  repo: string,
+  rec: IssueRecord,
+  plugin: string,
+  exec: (cmd: string, args: string[]) => Promise<string> = run,
+): Promise<Submission> {
+  const { title, text, prefilled } = draft(repo, rec, plugin)
+  try {
+    const url = await exec('gh', ['issue', 'create', '--repo', repo, '--title', title, '--body', text])
+    saveIssue(dir, { ...rec, issueUrl: url })
+    return { filed: true, issueUrl: url, prefilled, hint: '' }
+  } catch (e) {
+    if (!missingTool(e)) throw e
+    return {
+      filed: false,
+      issueUrl: '',
+      prefilled,
+      hint: 'gh is not installed, so nothing was sent: open prefilled in a browser to file it, or install gh (https://cli.github.com) and rerun submit',
+    }
+  }
+}
+
+/** Attach the fix locally, and comment it on the upstream issue when both exist. */
+export async function solveIssue(
+  dir: string,
+  id: string,
+  note: string,
+  exec: (cmd: string, args: string[]) => Promise<string> = run,
+): Promise<{ record: IssueRecord; commented: boolean }> {
   const rec = loadIssue(dir, id)
   const updated: IssueRecord = { ...rec, resolution: { at: new Date().toISOString(), note } }
   saveIssue(dir, updated)
   if (!updated.issueUrl) return { record: updated, commented: false }
-  await run('gh', ['issue', 'comment', updated.issueUrl, '--body', `Resolved: ${note}`])
+  try {
+    await exec('gh', ['issue', 'comment', updated.issueUrl, '--body', `Resolved: ${note}`])
+  } catch (e) {
+    if (!missingTool(e)) throw e
+    return { record: updated, commented: false }
+  }
   return { record: updated, commented: true }
 }

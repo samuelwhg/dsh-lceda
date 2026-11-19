@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { countable, issuesDir, listIssues, loadIssue, recordFailure, redact } from '../src/issues'
+import { countable, draft, issuesDir, listIssues, loadIssue, recordFailure, redact, solveIssue, submitIssue } from '../src/issues'
 
 describe('redact', () => {
   it('strips home, absolute paths and tokens but keeps the message', () => {
@@ -25,7 +25,7 @@ describe('countable', () => {
 })
 
 describe('the issue ledger', () => {
-  it('records, lists and resolves a failure', () => {
+  it('records, lists and resolves a failure', async () => {
     const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lceda-issues-'))
     const dir = issuesDir(workDir)
     expect(listIssues(dir)).toEqual([])
@@ -44,5 +44,41 @@ describe('the issue ledger', () => {
     expect(found).toHaveLength(1)
     expect(loadIssue(dir, found[0].id).tool).toBe('lceda_run')
     expect(() => loadIssue(dir, 'nope')).toThrow(/no issue record "nope".*known ids: /)
+
+    const done = await solveIssue(dir, found[0].id, 'reran after cleaning zombie sessions')
+    expect(done.commented).toBe(false) // no issue URL yet, so nothing to comment on
+    expect(listIssues(dir)[0].resolution?.note).toContain('zombie')
+  })
+})
+
+describe('submission without gh', () => {
+  const rec = {
+    id: '20261119T000000Z-lceda_run',
+    at: '2026-11-19T00:00:00.000Z',
+    plugin: 'dsh-lceda@0.1.0',
+    tool: 'lceda_run',
+    error: 'boom at <path>',
+    input: '{"code":"x"}',
+    env: { platform: 'linux', node: 'v22.0.0' },
+  }
+
+  it('builds a prefilled browser URL', () => {
+    const { title, prefilled } = draft('samuelwhg/dsh-lceda', rec, rec.plugin)
+    expect(title).toBe('lceda_run: boom at <path>')
+    expect(prefilled).toMatch(/^https:\/\/github\.com\/samuelwhg\/dsh-lceda\/issues\/new\?title=/)
+    expect(prefilled).toContain(encodeURIComponent('lceda_run: boom at <path>'))
+  })
+
+  it('falls back to the URL when gh is missing, and rethrows real gh failures', async () => {
+    const dir = issuesDir(fs.mkdtempSync(path.join(os.tmpdir(), 'lceda-submit-')))
+    recordFailure({ dir, plugin: rec.plugin, tool: rec.tool, input: rec.input, error: rec.error })
+
+    const noGh = () => Promise.reject(new Error('cannot start "gh": install it'))
+    const sub = await submitIssue(dir, 'o/r', rec, rec.plugin, noGh)
+    expect(sub.filed).toBe(false)
+    expect(sub.prefilled).toContain('github.com/o/r/issues/new')
+    expect(sub.hint).toContain('gh is not installed')
+
+    await expect(submitIssue(dir, 'o/r', rec, rec.plugin, () => Promise.reject(new Error('gh exited 1: not logged in')))).rejects.toThrow(/not logged in/)
   })
 })

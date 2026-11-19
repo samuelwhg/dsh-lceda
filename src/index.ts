@@ -199,8 +199,16 @@ export function apply(ctx: Context, config: ConfigShape): void {
           throw new Error('config reportRepo is empty: set it to "owner/name" to file issues upstream (see README.md#configuration)')
         }
         const rec = loadIssue(dir, id)
-        if (rec.issueUrl) return { id, issueUrl: rec.issueUrl, alreadyFiled: true }
-        return { id, issueUrl: await submitIssue(dir, cfg.reportRepo, rec, PLUGIN), alreadyFiled: false }
+        if (rec.issueUrl) return { id, filed: true, issueUrl: rec.issueUrl, prefilled: '', hint: '', alreadyFiled: true }
+        const sub = await submitIssue(dir, cfg.reportRepo, rec, PLUGIN)
+        return {
+          id,
+          filed: sub.filed,
+          issueUrl: sub.issueUrl,
+          prefilled: sub.prefilled,
+          hint: sub.hint,
+          alreadyFiled: false,
+        }
       }
       if (!args.note) throw new Error('lceda_report solve needs note: what fixed it (see README.md#reporting-problems)')
       const { record, commented } = await solveIssue(dir, id, args.note)

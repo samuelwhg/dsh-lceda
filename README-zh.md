@@ -168,8 +168,10 @@ LCEDA Pro 升级可能改名或移除这些调用；工具开始报 `... is not 
 - 落盘前先脱敏：家目录变 `~`、绝对路径变 `<path>`、`ghp_*` / `github_pat_*` token 变
   `<token>`；入参同样截断并脱敏。
 - `lceda_report { "action": "list" }` 看清单；`{ "action": "submit", "id": ... }` 把最新
-  （或指定）一条通过你已登录的 `gh` 提到 `reportRepo`；`{ "action": "solve", "id": ...,
-  "note": "..." }` 记下解决办法，已有 issue 时同时评论上去。
+  （或指定）一条通过你已登录的 `gh` 提到 `reportRepo`。没装 `gh` 也不会坏：`submit` 会把
+  同样的标题和正文拼成预填好的 `github.com/.../issues/new?title=…` 链接返回——不用
+  token，插件自己也不发任何网络请求。
+- `{ "action": "solve", "id": ..., "note": "..." }` 先记下解决办法，已有 issue 时再评论上去。
 
 给 agent 的习惯：同一故障出现两次就建议 `submit`；解决后用 `solve` 留下结论，下一个人
 就不用重踩。
