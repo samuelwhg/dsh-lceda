@@ -21,7 +21,7 @@ built `lib/`, so installing runs no build script.
 # from a checkout
 dsh plugin --profile <profile> add /path/to/dsh-lceda
 # from git (build output is committed)
-dsh plugin --profile <profile> add git+https://gitee.com/samuelhg/dsh-lceda.git
+dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.git
 ```
 
 Restart that profile. The bundle's `cordis.patch.yml` inserts the `dsh-lceda` row, so
@@ -115,8 +115,8 @@ Declared capabilities: `tools:register`, `fs:read`, `fs:write`, `subprocess`.
 ## Upgrade, rollback, uninstall
 
 ```sh
-dsh plugin --profile <profile> add git+https://gitee.com/samuelhg/dsh-lceda.git   # upgrade
-dsh plugin --profile <profile> add git+https://gitee.com/samuelhg/dsh-lceda.git#<tag-or-commit>  # pin / roll back
+dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.git   # upgrade
+dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.git#<tag-or-commit>  # pin / roll back
 dsh plugin --profile <profile> remove dsh-lceda                                  # uninstall
 ```
 

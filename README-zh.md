@@ -18,7 +18,7 @@ DeepSeek Harness 的 **嘉立创 EDA（LCEDA 专业版）** 无头开发插件�
 # 从本地检出安装
 dsh plugin --profile <profile> add /path/to/dsh-lceda
 # 从 git 安装（构建产物已入库）
-dsh plugin --profile <profile> add git+https://gitee.com/samuelhg/dsh-lceda.git
+dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.git
 ```
 
 重启该 profile。bundle 的 `cordis.patch.yml` 会插入 `dsh-lceda` 这一行，八个 `lceda_*`
@@ -105,8 +105,8 @@ dsh plugin --profile <profile> add git+https://gitee.com/samuelhg/dsh-lceda.git
 ## 升级、回滚、卸载
 
 ```sh
-dsh plugin --profile <profile> add git+https://gitee.com/samuelhg/dsh-lceda.git   # 升级
-dsh plugin --profile <profile> add git+https://gitee.com/samuelhg/dsh-lceda.git#<tag-或-commit>  # 锁定 / 回滚
+dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.git   # 升级
+dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.git#<tag-或-commit>  # 锁定 / 回滚
 dsh plugin --profile <profile> remove dsh-lceda                                  # 卸载
 ```
 
