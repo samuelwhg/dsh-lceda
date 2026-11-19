@@ -1,6 +1,7 @@
 {
   "meta": {
-    "title": "lceda",
-    "description": "由 dsh-plugin-dev 脚手架生成的 DeepSeek Harness 插件。"
+    "title": "LCEDA 专业版",
+    "description": "DeepSeek Harness 的嘉立创 EDA（LCEDA 专业版）无头开发插件：编辑器脚本、自动布线、DRC、网表核对、生产文件导出。",
+    "detail": "README.md"
   }
 }

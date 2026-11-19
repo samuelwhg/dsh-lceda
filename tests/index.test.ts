@@ -1,5 +1,46 @@
-import { describe, expect, it } from 'vitest'
+import { EventEmitter } from 'node:events'
+import { describe, expect, it, vi } from 'vitest'
 import { connectivity, diffNets, normalizeCsv, parseProtel2 } from '../src/decode'
+import { apply, Config } from '../src/index'
+
+const spawnMock = vi.hoisted(() => vi.fn())
+vi.mock('node:child_process', () => ({ spawn: spawnMock }))
+
+/** Minimal CLI child: emits one JSON envelope on stdout, then closes. */
+function cliChild(envelope: unknown) {
+  const child = new EventEmitter() as EventEmitter & Record<string, unknown>
+  child.stdout = new EventEmitter()
+  child.stderr = new EventEmitter()
+  child.stdin = { write() {}, end() {} }
+  child.kill = () => true
+  queueMicrotask(() => {
+    ;(child.stdout as EventEmitter).emit('data', Buffer.from(JSON.stringify(envelope)))
+    child.emit('close')
+  })
+  return child
+}
+
+/** Host surface `apply` touches: tools + effect + the injected skills service. */
+function fakeCtx() {
+  const tools: Record<string, { execute: (args: Record<string, unknown>) => Promise<unknown> }> = {}
+  const skills: Array<{ name: string; description?: string; source?: string; content: string; resourceBase?: { kind: string; path: string } }> = []
+  const disposers: Array<() => unknown> = []
+  // cordis runs the effect body immediately and keeps what it returns as the disposer.
+  const effect = (fn: () => unknown) => {
+    const dispose = fn()
+    if (typeof dispose === 'function') disposers.push(dispose as () => unknown)
+  }
+  return {
+    tools,
+    skills,
+    disposers,
+    ctx: {
+      tools: { register: (t: { name: string }) => { tools[t.name] = t as never } },
+      effect,
+      inject: (_deps: string[], cb: (c: unknown) => void) => cb({ skills: { register: (s: never) => { skills.push(s); return () => {} } }, effect }),
+    },
+  }
+}
 
 describe('normalizeCsv', () => {
   it('converts UTF-16LE BOM csv to utf8', () => {
@@ -60,3 +101,41 @@ describe('diffNets', () => {
     expect(r.mismatches).toEqual([{ key: 'R1|2', actual: '', expected: 'GND' }])
   })
 })
+
+describe('unconfigured project guards', () => {
+  const { ctx, tools } = fakeCtx()
+  apply(ctx as never, Config({} as never))
+  it('lceda_run doc=pcb fails clearly when pcbUuid is unset', async () => {
+    await expect(tools.lceda_run.execute({ code: 'return 1', doc: 'pcb', write: false })).rejects.toThrow('pcbUuid is not set')
+  })
+  it('lceda_route fails clearly when freeroutingJar/sesDirWin are unset', async () => {
+    await expect(tools.lceda_route.execute({})).rejects.toThrow('freeroutingJar and sesDirWin')
+  })
+})
+
+describe('plugin wiring', () => {
+  it('registers the bundled lceda-dev skill, red lines included', () => {
+    const { ctx, skills } = fakeCtx()
+    apply(ctx as never, Config({} as never))
+    const skill = skills.find((s) => s.name === 'lceda-dev')
+    expect(skill).toBeDefined()
+    expect(skill!.source).toBe('bundled')
+    expect(skill!.description).toContain('嘉立创')
+    expect(skill!.content).toContain('勿整文件覆盖')
+    expect(skill!.content.startsWith('---')).toBe(false)
+    expect(skill!.resourceBase?.kind).toBe('directory')
+  })
+
+  it('closes the sessions it opened on dispose', async () => {
+    spawnMock.mockImplementation(() => cliChild({ ok: true, value: { sessionId: 's1' } }))
+    const { ctx, tools, disposers } = fakeCtx()
+    apply(ctx as never, Config({ projectPath: 'D:\\work\\board.eprj3' } as never))
+    expect(await tools.lceda_session.execute({ action: 'open' })).toEqual({ sessionId: 's1' })
+
+    spawnMock.mockClear()
+    spawnMock.mockImplementation(() => cliChild({ ok: true }))
+    await (disposers[0] as () => Promise<void>)()
+    expect(spawnMock.mock.calls[0]).toEqual([expect.any(String), ['session', 'close', '--session', 's1', '--destroy'], expect.objectContaining({ cwd: expect.any(String) })])
+  })
+})
+

@@ -5,6 +5,11 @@
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/samuelwhg/dsh-lceda.git"
+  },
+  "homepage": "https://github.com/samuelwhg/dsh-lceda#readme",
   "exports": {
     ".": "./lib/index.js",
     "./locale/*.json": "./locale/*.json",

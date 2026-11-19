@@ -3,6 +3,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { Config } from './config'
 import type { Config as ConfigShape } from './config'
 import { closeSession, guardGui, invoke, listSessions, openHeadless, readyPrelude, RETRY_GETALL } from './cli'
@@ -17,10 +18,10 @@ export { Config }
 
 const B64 = `function toB64(buf) { const u = new Uint8Array(buf); let s = ''; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); }\n`
 
-/** Sessions this plugin opened; reused across tool calls. */
-const owned: string[] = []
+/** Sessions one plugin instance opened; reused across tool calls, closed on dispose. */
+type Owned = string[]
 
-async function resolveSession(cfg: ConfigShape, given?: string): Promise<string> {
+async function resolveSession(cfg: ConfigShape, owned: Owned, given?: string): Promise<string> {
   if (given) return given
   const alive = await listSessions(cfg)
   const ids = new Set(alive.map((s) => s.sessionId))
@@ -31,8 +32,8 @@ async function resolveSession(cfg: ConfigShape, given?: string): Promise<string>
   return id
 }
 
-async function call(cfg: ConfigShape, session: string | undefined, code: string, args?: Record<string, Json>, timeoutMs?: number): Promise<Json> {
-  let sid = await resolveSession(cfg, session)
+async function call(cfg: ConfigShape, owned: Owned, session: string | undefined, code: string, args?: Record<string, Json>, timeoutMs?: number): Promise<Json> {
+  let sid = await resolveSession(cfg, owned, session)
   try {
     return (await invoke(cfg, sid, code, args, timeoutMs)) as Json
   } catch (e) {
@@ -54,6 +55,17 @@ function winToWsl(p: string): string {
   return m ? `/mnt/${m[1].toLowerCase()}/${m[2].replace(/\\/g, '/')}` : p
 }
 
+function needUuid(cfg: ConfigShape, kind: 'pcb' | 'sch'): string {
+  const u = kind === 'pcb' ? cfg.pcbUuid : cfg.schUuid
+  if (!u) throw new Error(`config ${kind}Uuid is not set: set ${kind}Uuid in the dsh-lceda config (see README.md#configuration)`)
+  return u
+}
+
+/** Subset of the host skill service this plugin registers into. */
+interface SkillsLike {
+  register(skill: { name: string, description?: string, source?: string, content: string, resourceBase?: { kind: 'directory', path: string } }): () => void
+}
+
 function jsonRender(_args: unknown, value: unknown) {
   const text = JSON.stringify(value, null, 1)
   return [{ type: 'text' as const, text: text.length > 6000 ? text.slice(0, 6000) + '\n…(truncated)' : text }]
@@ -61,6 +73,27 @@ function jsonRender(_args: unknown, value: unknown) {
 
 export function apply(ctx: Context, config: ConfigShape): void {
   const cfg = config
+
+  /** Sessions this plugin instance opened; closed on dispose so a reload leaves no headless CLI behind. */
+  const owned: Owned = []
+  ctx.effect(() => async () => {
+    await Promise.all(owned.splice(0).map((id) => closeSession(cfg, id).catch(() => false)))
+  }, 'dsh-lceda owned sessions')
+
+  // The host never scans package skill directories, so the bundled skill must be registered explicitly.
+  ctx.inject(['skills'], (sctx) => {
+    try {
+      const dir = fileURLToPath(new URL('../skills/lceda-dev/', import.meta.url))
+      const text = fs.readFileSync(path.join(dir, 'SKILL.md'), 'utf8')
+      const fm = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(text)
+      const description = fm ? /^description:[ \t]*(.+?)[ \t]*$/m.exec(fm[1])?.[1]?.trim() : undefined
+      const content = (fm ? text.slice(fm[0].length) : text).replace(/^(?:[ \t]*\r?\n)+/, '')
+      const skills = (sctx as unknown as { skills: SkillsLike }).skills
+      sctx.effect(() => skills.register({ name: 'lceda-dev', source: 'bundled', description, content, resourceBase: { kind: 'directory', path: dir } }), 'dsh-lceda skill lceda-dev')
+    } catch (e) {
+      console.warn(`dsh-lceda: skill lceda-dev not registered: ${String((e as Error).message)}`)
+    }
+  })
 
   ctx.tools.register(defineTool({
     name: 'lceda_session',
@@ -111,9 +144,9 @@ export function apply(ctx: Context, config: ConfigShape): void {
     output: { schema: { type: 'object', additionalProperties: true }, render: jsonRender },
     async execute(args) {
       if (args.write !== false) await guardGui(cfg)
-      const uuid = args.doc === 'pcb' ? cfg.pcbUuid : args.doc === 'sch' ? cfg.schUuid : args.doc
+      const uuid = args.doc === 'pcb' ? needUuid(cfg, 'pcb') : args.doc === 'sch' ? needUuid(cfg, 'sch') : args.doc
       const code = (uuid ? readyPrelude(uuid) : '') + RETRY_GETALL + args.code
-      const value = await call(cfg, args.session, code, args.args as Record<string, Json> | undefined, args.timeoutMs)
+      const value = await call(cfg, owned, args.session, code, args.args as Record<string, Json> | undefined, args.timeoutMs)
       return { value }
     },
   }))
@@ -124,29 +157,29 @@ export function apply(ctx: Context, config: ConfigShape): void {
     parameters: {
       kinds: { type: 'array', items: { type: 'string' }, description: 'Subset of gerber,bom,pnp,pdf,netlist,svg,png (default all).' },
       outDir: { type: 'string', description: 'WSL output dir (default config workDir/exports).' },
-      name: { type: 'string', description: 'Base file name (default carrier).' },
+      name: { type: 'string', description: 'Base file name (default board).' },
       session: { type: 'string' },
     },
     output: { schema: { type: 'object', additionalProperties: true }, render: jsonRender },
     async execute(args) {
       await guardGui(cfg)
       const kinds = args.kinds?.length ? args.kinds : ['gerber', 'bom', 'pnp', 'pdf', 'netlist', 'svg', 'png']
-      const base = args.name ?? 'carrier'
+      const base = args.name ?? 'board'
       const code = `${B64}${RETRY_GETALL}
 const out = {};
 const want = ${JSON.stringify(kinds)};
 const base = ${JSON.stringify(base)};
 if (want.some((k) => ['gerber','pnp','pdf'].includes(k))) {
-  await eda.dmt_EditorControl.openDocument(${JSON.stringify(cfg.pcbUuid)});
-  await eda.dmt_EditorControl.waitForDocumentReady(${JSON.stringify(cfg.pcbUuid)}, 30000);
+  await eda.dmt_EditorControl.openDocument(${JSON.stringify(needUuid(cfg, 'pcb'))});
+  await eda.dmt_EditorControl.waitForDocumentReady(${JSON.stringify(needUuid(cfg, 'pcb'))}, 30000);
   const M = eda.pcb_ManufactureData;
   if (want.includes('gerber')) { const f = await M.getGerberFile(base + '-gerber', false, 'mm'); out.gerber = toB64(await f.arrayBuffer()); }
   if (want.includes('pnp')) { const f = await M.getPickAndPlaceFile(base + '-pnp', 'csv', 'mm'); out.pnp = toB64(await f.arrayBuffer()); }
   if (want.includes('pdf')) { const f = await M.getPdfFile(base + '-assembly', {}); out.pdf = toB64(await f.arrayBuffer()); }
 }
 if (want.some((k) => ['bom','netlist','svg','png'].includes(k))) {
-  await eda.dmt_EditorControl.openDocument(${JSON.stringify(cfg.schUuid)});
-  await eda.dmt_EditorControl.waitForDocumentReady(${JSON.stringify(cfg.schUuid)}, 30000);
+  await eda.dmt_EditorControl.openDocument(${JSON.stringify(needUuid(cfg, 'sch'))});
+  await eda.dmt_EditorControl.waitForDocumentReady(${JSON.stringify(needUuid(cfg, 'sch'))}, 30000);
   const S = eda.sch_ManufactureData;
   if (want.includes('bom')) { const f = await S.getBomFile(base + '-bom', 'csv'); out.bom = toB64(await f.arrayBuffer()); }
   if (want.includes('netlist')) { const f = await S.getNetlistFile(base + '-net', 'Protel2'); out.netlist = toB64(await f.arrayBuffer()); }
@@ -154,7 +187,7 @@ if (want.some((k) => ['bom','netlist','svg','png'].includes(k))) {
   if (want.includes('png')) { const f = await S.getPngFile(base + '-sch', { width: 2400, height: 1700 }); out.png = toB64(await f.arrayBuffer()); }
 }
 return out;`
-      const map = (await call(cfg, args.session, code, undefined, 240000)) as unknown as Record<string, string>
+      const map = (await call(cfg, owned, args.session, code, undefined, 240000)) as unknown as Record<string, string>
       const dir = args.outDir ?? path.join(cfg.workDir, 'exports')
       fs.mkdirSync(dir, { recursive: true })
       const files: { kind: string; file: string; bytes: number }[] = []
@@ -180,43 +213,44 @@ return out;`
     },
     output: { schema: { type: 'object', additionalProperties: true }, render: jsonRender },
     async execute(args) {
+      if (!cfg.freeroutingJar || !cfg.sesDirWin) throw new Error('lceda_route requires config freeroutingJar and sesDirWin (see README.md#configuration)')
       await guardGui(cfg)
       const dir = args.workDir ?? cfg.workDir
       fs.mkdirSync(dir, { recursive: true })
-      const dsnPath = path.join(dir, 'carrier.dsn')
-      const sesPath = path.join(dir, 'carrier.ses')
+      const dsnPath = path.join(dir, 'board.dsn')
+      const sesPath = path.join(dir, 'board.ses')
       const logPath = path.join(dir, 'freerouting.log')
       const code1 = `${B64}${RETRY_GETALL}
-await eda.dmt_EditorControl.openDocument(${JSON.stringify(cfg.pcbUuid)});
-await eda.dmt_EditorControl.waitForDocumentReady(${JSON.stringify(cfg.pcbUuid)}, 30000);
+await eda.dmt_EditorControl.openDocument(${JSON.stringify(needUuid(cfg, 'pcb'))});
+await eda.dmt_EditorControl.waitForDocumentReady(${JSON.stringify(needUuid(cfg, 'pcb'))}, 30000);
 await eda.pcb_Document.clearRouting();
-const f = await eda.pcb_ManufactureData.getDsnFile('carrier');
+const f = await eda.pcb_ManufactureData.getDsnFile('board');
 return toB64(await f.arrayBuffer());`
-      const b64 = (await call(cfg, args.session, code1, undefined, 180000)) as unknown as string
+      const b64 = (await call(cfg, owned, args.session, code1, undefined, 180000)) as unknown as string
       fs.writeFileSync(dsnPath, b64ToBuffer(b64))
       const log = fs.openSync(logPath, 'w')
       await new Promise<void>((resolve, reject) => {
         const child = spawn(cfg.javaBin, ['-jar', cfg.freeroutingJar, '-de', dsnPath, '-do', sesPath, '-mp', String(args.passes ?? 100), '--gui.enabled=false'], { cwd: dir, stdio: ['ignore', log, log] })
         const timer = setTimeout(() => { child.kill('SIGKILL'); reject(new Error('Freerouting timeout')) }, cfg.routeTimeoutMs)
-        child.on('error', (e) => { clearTimeout(timer); reject(e) })
+        child.on('error', (e) => { clearTimeout(timer); reject(new Error(`cannot start "${cfg.javaBin}" (${e.message}): set config javaBin to a working Java runtime (see README.md#troubleshooting)`)) })
         child.on('close', () => { clearTimeout(timer); resolve() })
       })
       fs.closeSync(log)
       const logText = fs.readFileSync(logPath, 'utf8')
       const unrouted = /(\d+)\s+unrouted/i.exec(logText)?.[1] ?? null
       const violations = /(\d+)\s+clearance violation/i.exec(logText)?.[1] ?? null
-      const sesWin = `${cfg.sesDirWin}/carrier.ses`
+      const sesWin = `${cfg.sesDirWin}/board.ses`
       fs.mkdirSync(winToWsl(cfg.sesDirWin), { recursive: true })
-      fs.copyFileSync(sesPath, path.join(winToWsl(cfg.sesDirWin), 'carrier.ses'))
+      fs.copyFileSync(sesPath, path.join(winToWsl(cfg.sesDirWin), 'board.ses'))
       const code2 = `${RETRY_GETALL}
-await eda.dmt_EditorControl.openDocument(${JSON.stringify(cfg.pcbUuid)});
-await eda.dmt_EditorControl.waitForDocumentReady(${JSON.stringify(cfg.pcbUuid)}, 30000);
+await eda.dmt_EditorControl.openDocument(${JSON.stringify(needUuid(cfg, 'pcb'))});
+await eda.dmt_EditorControl.waitForDocumentReady(${JSON.stringify(needUuid(cfg, 'pcb'))}, 30000);
 const f = await eda.sys_FileSystem.readFileFromFileSystem(${JSON.stringify(sesWin)});
 const imported = await eda.pcb_Document.importAutoRouteSesFile(f);
 await eda.pcb_Document.save();
 const lines = await getAllRetry(() => eda.pcb_PrimitiveLine.getAll());
 return { imported, tracks: lines.length };`
-      const res = (await call(cfg, args.session, code2, undefined, 180000)) as unknown as { imported: boolean; tracks: number }
+      const res = (await call(cfg, owned, args.session, code2, undefined, 180000)) as unknown as { imported: boolean; tracks: number }
       return { ...res, unrouted, violations, dsn: dsnPath, ses: sesPath, log: logPath }
     },
   }))
@@ -235,8 +269,8 @@ return { imported, tracks: lines.length };`
       const out: Record<string, Json> = {}
       if (mode === 'nets' || mode === 'all') {
         const code = `${RETRY_GETALL}
-await eda.dmt_EditorControl.openDocument(${JSON.stringify(cfg.pcbUuid)});
-await eda.dmt_EditorControl.waitForDocumentReady(${JSON.stringify(cfg.pcbUuid)}, 30000);
+await eda.dmt_EditorControl.openDocument(${JSON.stringify(needUuid(cfg, 'pcb'))});
+await eda.dmt_EditorControl.waitForDocumentReady(${JSON.stringify(needUuid(cfg, 'pcb'))}, 30000);
 const comps = await getAllRetry(() => eda.pcb_PrimitiveComponent.getAll());
 const actual = {};
 for (const c of comps) {
@@ -245,7 +279,7 @@ for (const c of comps) {
   for (const p of pins || []) actual[ref + '|' + p.padNumber] = p.net || '';
 }
 return actual;`
-        const actual = (await call(cfg, args.session, code, undefined, 180000)) as unknown as Record<string, string>
+        const actual = (await call(cfg, owned, args.session, code, undefined, 180000)) as unknown as Record<string, string>
         if (args.expectedFile) {
           const expected = JSON.parse(fs.readFileSync(args.expectedFile, 'utf8')) as Record<string, string>
           out.nets = diffNets(actual, expected) as unknown as Json
@@ -253,8 +287,8 @@ return actual;`
       }
       if (mode === 'conn' || mode === 'all') {
         const code = `${RETRY_GETALL}
-await eda.dmt_EditorControl.openDocument(${JSON.stringify(cfg.pcbUuid)});
-await eda.dmt_EditorControl.waitForDocumentReady(${JSON.stringify(cfg.pcbUuid)}, 30000);
+await eda.dmt_EditorControl.openDocument(${JSON.stringify(needUuid(cfg, 'pcb'))});
+await eda.dmt_EditorControl.waitForDocumentReady(${JSON.stringify(needUuid(cfg, 'pcb'))}, 30000);
 const comps = await getAllRetry(() => eda.pcb_PrimitiveComponent.getAll());
 const pads = [];
 for (const c of comps) {
@@ -267,13 +301,13 @@ const segs = lines.map((l) => ({ net: l.net || '', ax: l.startX, ay: l.startY, b
 const vias = await getAllRetry(() => eda.pcb_PrimitiveVia.getAll());
 const vs = vias.map((v) => ({ id: v.primitiveId, net: v.net || '', x: v.x, y: v.y }));
 return { pads, segs, vias: vs };`
-        const g = (await call(cfg, args.session, code, undefined, 180000)) as unknown as { pads: ConnPad[]; segs: ConnSeg[]; vias: ConnVia[] }
+        const g = (await call(cfg, owned, args.session, code, undefined, 180000)) as unknown as { pads: ConnPad[]; segs: ConnSeg[]; vias: ConnVia[] }
         out.conn = { isolated: connectivity(g.pads, g.segs, g.vias), pads: g.pads.length, segs: g.segs.length, vias: g.vias.length } as unknown as Json
       }
       if (mode === 'drc' || mode === 'all') {
         const code = `${RETRY_GETALL}
-await eda.dmt_EditorControl.openDocument(${JSON.stringify(cfg.pcbUuid)});
-await eda.dmt_EditorControl.waitForDocumentReady(${JSON.stringify(cfg.pcbUuid)}, 30000);
+await eda.dmt_EditorControl.openDocument(${JSON.stringify(needUuid(cfg, 'pcb'))});
+await eda.dmt_EditorControl.waitForDocumentReady(${JSON.stringify(needUuid(cfg, 'pcb'))}, 30000);
 let ran = false; let result = null; let note = '';
 try { result = await eda.pcb_Drc.getDrcResult(); } catch (e) { result = null; }
 if (!result) {
@@ -281,7 +315,7 @@ if (!result) {
   try { result = await eda.pcb_Drc.getDrcResult(); } catch (e) { note = 'headless DRC unavailable (canvas subscription): ' + String(e && e.message || e); }
 }
 return { ran, result, note };`
-        out.drc = (await call(cfg, args.session, code, undefined, 180000)) as Json
+        out.drc = (await call(cfg, owned, args.session, code, undefined, 180000)) as Json
       }
       return out
     },
@@ -300,8 +334,8 @@ return { ran, result, note };`
       await guardGui(cfg)
       const code = args.action === 'connectMode'
         ? `${RETRY_GETALL}
-await eda.dmt_EditorControl.openDocument(${JSON.stringify(cfg.pcbUuid)});
-await eda.dmt_EditorControl.waitForDocumentReady(${JSON.stringify(cfg.pcbUuid)}, 30000);
+await eda.dmt_EditorControl.openDocument(${JSON.stringify(needUuid(cfg, 'pcb'))});
+await eda.dmt_EditorControl.waitForDocumentReady(${JSON.stringify(needUuid(cfg, 'pcb'))}, 30000);
 const r = await eda.pcb_Drc.getCurrentRuleConfiguration();
 const c = r.config; const mode = ${args.mode ?? 2};
 const cz = c.Plane['Copper Zone'].copperRegion.form;
@@ -315,13 +349,13 @@ await eda.pcb_Document.save();
 const after = await eda.pcb_Drc.getCurrentRuleConfiguration();
 return { rule: after.name, pours: pours.length };`
         : `${RETRY_GETALL}
-await eda.dmt_EditorControl.openDocument(${JSON.stringify(cfg.pcbUuid)});
-await eda.dmt_EditorControl.waitForDocumentReady(${JSON.stringify(cfg.pcbUuid)}, 30000);
+await eda.dmt_EditorControl.openDocument(${JSON.stringify(needUuid(cfg, 'pcb'))});
+await eda.dmt_EditorControl.waitForDocumentReady(${JSON.stringify(needUuid(cfg, 'pcb'))}, 30000);
 const pours = await getAllRetry(() => eda.pcb_PrimitivePour.getAll());
 for (const p of pours) await p.rebuildCopperRegion();
 await eda.pcb_Document.save();
 return { pours: pours.length };`
-      return { value: (await call(cfg, args.session, code, undefined, 180000)) as Json }
+      return { value: (await call(cfg, owned, args.session, code, undefined, 180000)) as Json }
     },
   }))
 
@@ -347,8 +381,8 @@ return { pours: pours.length };`
     async execute(args) {
       await guardGui(cfg)
       const code = `${RETRY_GETALL}
-await eda.dmt_EditorControl.openDocument(${JSON.stringify(cfg.schUuid)});
-await eda.dmt_EditorControl.waitForDocumentReady(${JSON.stringify(cfg.schUuid)}, 30000);
+await eda.dmt_EditorControl.openDocument(${JSON.stringify(needUuid(cfg, 'sch'))});
+await eda.dmt_EditorControl.waitForDocumentReady(${JSON.stringify(needUuid(cfg, 'sch'))}, 30000);
 const wires = __CLI__.args.wires;
 const ids = [];
 for (const w of wires) {
@@ -360,7 +394,7 @@ for (const w of wires) {
 }
 await eda.sch_Document.save();
 return { created: ids.length, ids };`
-      return { value: (await call(cfg, args.session, code, { wires: args.wires as unknown as Json }, 180000)) as Json }
+      return { value: (await call(cfg, owned, args.session, code, { wires: args.wires as unknown as Json }, 180000)) as Json }
     },
   }))
 
@@ -374,10 +408,10 @@ return { created: ids.length, ids };`
     output: { schema: { type: 'object', additionalProperties: true }, render: jsonRender },
     async execute(args) {
       const code = `${RETRY_GETALL}
-await eda.dmt_EditorControl.openDocument(${JSON.stringify(cfg.schUuid)});
-await eda.dmt_EditorControl.waitForDocumentReady(${JSON.stringify(cfg.schUuid)}, 30000);
+await eda.dmt_EditorControl.openDocument(${JSON.stringify(needUuid(cfg, 'sch'))});
+await eda.dmt_EditorControl.waitForDocumentReady(${JSON.stringify(needUuid(cfg, 'sch'))}, 30000);
 return await eda.sch_Netlist.getNetlist('Protel2');`
-      const text = (await call(cfg, args.session, code, undefined, 120000)) as unknown as string
+      const text = (await call(cfg, owned, args.session, code, undefined, 120000)) as unknown as string
       const nl = parseProtel2(text)
       const actual: Record<string, string> = {}
       for (const [ref, pins] of Object.entries(nl.comps)) for (const [pin, net] of Object.entries(pins)) actual[`${ref}|${pin}`] = net

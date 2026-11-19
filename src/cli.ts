@@ -20,7 +20,10 @@ export function runCli(cfg: Config, args: string[], stdin?: string, timeoutMs = 
     }, timeoutMs)
     child.stdout.on('data', (d) => { out += d.toString() })
     child.stderr.on('data', (d) => { err += d.toString() })
-    child.on('error', (e) => { clearTimeout(timer); reject(e) })
+    child.on('error', (e) => {
+      clearTimeout(timer)
+      reject(new Error(`cannot start "${cfg.exePath}" (${e.message}): set config exePath to your LCEDA Pro executable (see README.md#troubleshooting)`))
+    })
     child.on('close', () => {
       clearTimeout(timer)
       const text = out.trim()
@@ -47,7 +50,9 @@ export async function listSessions(cfg: Config): Promise<SessionInfo[]> {
 }
 
 export async function openHeadless(cfg: Config, path?: string): Promise<string> {
-  const env = await runCli(cfg, ['open', '--headless', 'true', '--path', path ?? cfg.projectPath], undefined, 90000)
+  const p = path ?? cfg.projectPath
+  if (!p) throw new Error('no project path: pass a .eprj3 path or set config projectPath (see README.md#configuration)')
+  const env = await runCli(cfg, ['open', '--headless', 'true', '--path', p], undefined, 90000)
   if (!env.ok) throw new Error(`open failed: ${env.error?.message ?? env.raw.slice(0, 300)}`)
   const v = env.value as { sessionId?: string }
   if (!v?.sessionId) throw new Error(`open returned no sessionId: ${env.raw.slice(0, 300)}`)

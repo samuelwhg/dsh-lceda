@@ -5,7 +5,7 @@ description: 嘉立创 EDA Pro（LCEDA）headless 开发流程与红线。当用
 
 # LCEDA 开发（dsh-lceda）
 
-工程与路径、API 细节的权威页在仓库知识库 `docs/kb/wiki/LCEDA开发环境.md`；本页只记操作顺序与红线。
+本页只记操作顺序与红线；工程路径与文档 uuid 由插件配置提供（projectPath/pcbUuid/schUuid，按工程设置）。
 
 ## 工具选择
 - 会话：`lceda_session` open/list/close/clean。**动手前先 clean**：zombie headless 会话会让 getAll 返回 null。
@@ -25,4 +25,4 @@ description: 嘉立创 EDA Pro（LCEDA）headless 开发流程与红线。当用
 6. 信号过孔旁补 GND 回流孔；铺铜前泪滴（GUI：工具→泪滴）。
 
 ## 典型顺序
-clean → run/sch_wire 改设计 → sch_netlist 核对 → （GUI 同步或 importChanges 后）check nets → route → 重画总线+回流孔+重绑 → pour rebuild → check drc/conn → export → 同步仓库快照+提交。
+clean → run/sch_wire 改设计 → sch_netlist 核对 → （GUI 同步或 importChanges 后）check nets → route → 重画总线+回流孔+重绑 → pour rebuild → check drc/conn → export → 保存并提交设计变更。

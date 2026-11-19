@@ -1,6 +1,7 @@
 {
   "meta": {
-    "title": "lceda",
-    "description": "A DeepSeek Harness plugin scaffolded by dsh-plugin-dev."
+    "title": "LCEDA Pro",
+    "description": "A DeepSeek Harness plugin for LCEDA Pro (嘉立创 EDA) headless development: editor JavaScript, autorouting, DRC, netlist checks, exports.",
+    "detail": "README.md"
   }
 }
