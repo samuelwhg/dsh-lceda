@@ -12,10 +12,12 @@ import { closeSession, guardGui, invoke, listSessions, openHeadless, readyPrelud
 import { b64ToBuffer, connectivity, diffNets, normalizeCsv, parseProtel2 } from './decode'
 import {
   countable,
+  ghInstall,
   issuesDir,
   listIssues,
   loadIssue,
   recordFailure,
+  missingTool,
   searchIssues,
   searchUrl,
   similarLocal,
@@ -228,7 +230,10 @@ export function apply(ctx: Context, config: ConfigShape): void {
             state: r.state,
           }))
         } catch (e) {
-          hint = `could not reach the tracker (${(e as Error).message}); browse ${searchUrl(cfg.reportRepo, rec)} instead`
+          const why = missingTool(e)
+            ? `gh is not installed: ${ghInstall()}, then "gh auth login" once (README.md#reporting-problems)`
+            : `could not reach the tracker (${(e as Error).message})`
+          hint = `${why}; browse ${searchUrl(cfg.reportRepo, rec)} instead`
         }
         if (remote.length) hint = 'read the matching issues before debugging; if one explains it, apply that fix and run solve'
         if (fixed) hint = `local record ${fixed.id} already has a fix: ${fixed.resolution}`

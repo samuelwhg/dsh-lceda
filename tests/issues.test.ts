@@ -4,6 +4,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   countable,
+  ghInstall,
   draft,
   issueQuery,
   issuesDir,
@@ -81,6 +82,12 @@ describe('submission without gh', () => {
     expect(prefilled).toContain(encodeURIComponent('lceda_run: boom at <path>'))
   })
 
+  it('names the platform package manager when gh is missing', () => {
+    expect(ghInstall('win32')).toContain('winget install --id GitHub.cli')
+    expect(ghInstall('darwin')).toContain('brew install gh')
+    expect(ghInstall('linux')).toContain('apt install gh')
+  })
+
   it('falls back to the URL when gh is missing, and rethrows real gh failures', async () => {
     const dir = issuesDir(fs.mkdtempSync(path.join(os.tmpdir(), 'lceda-submit-')))
     recordFailure({ dir, plugin: rec.plugin, tool: rec.tool, input: rec.input, error: rec.error })
@@ -90,6 +97,8 @@ describe('submission without gh', () => {
     expect(sub.filed).toBe(false)
     expect(sub.prefilled).toContain('github.com/o/r/issues/new')
     expect(sub.hint).toContain('gh is not installed')
+    expect(sub.hint).toMatch(/winget install --id GitHub\.cli|apt install gh|brew install gh/)
+    expect(sub.hint).toContain('gh auth login')
 
     await expect(submitIssue(dir, 'o/r', rec, rec.plugin, () => Promise.reject(new Error('gh exited 1: not logged in')))).rejects.toThrow(/not logged in/)
   })

@@ -34,23 +34,29 @@ dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.gi
 >
 > 1. 先查前置条件：`node -v`（>= 22.19）、`dsh --version`（>= 0.2.2），以及本机是否装了
 >    LCEDA 专业版。问清我要装进哪个 DSH profile。
-> 2. 装进该 profile——从 git：
+> 2. 装 `gh` CLI——`lceda_report` 用它查和报 issue。可选（没装也能用：插件仍会本地记录并给你
+>    预填好的 issue 链接），但这是用户机器上最常缺的一个依赖：先 `gh --version`；缺就
+>    Windows 用 `winget install --id GitHub.cli`，WSL/Linux 用 `sudo apt install gh`（或下
+>    release tarball 放进 `~/.local/bin`），macOS 用 `brew install gh`。然后让我执行一次
+>    `gh auth login`（或把 token 喂给 `gh auth login --with-token`），并确认该账号能在
+>    `reportRepo` 里开 issue。
+> 3. 装进该 profile——从 git：
 >    `dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.git`
 >    （本地目录则 `add /path/to/dsh-lceda`）。装完确认 bundle 插入了 `id: dsh-lceda` 那一行。
-> 3. 问我要 `.eprj3` 工程路径。`exePath` 与 `spawnCwd` 留空——会按各盘
+> 4. 问我要 `.eprj3` 工程路径。`exePath` 与 `spawnCwd` 留空——会按各盘
 >    `Program Files{, (x86)}\lceda-pro` 自动探测。只有我说 LCEDA 装在非常规位置时才显式设
 >    `exePath`。
-> 4. 把 `projectPath` 写进 `<profile>/cordis.patch.yml` 里已有的 `id: dsh-lceda` 行——合并进
+> 5. 把 `projectPath` 写进 `<profile>/cordis.patch.yml` 里已有的 `id: dsh-lceda` 行——合并进
 >    那一行，绝不要再加一行。`pcbUuid` / `schUuid` 留空即可：插件会自动取工程文件里的第一块
 >    板 / 第一张原理图页。只有工程里有多块板、多页原理图且我要指定某个时才填——id 就是
 >    `.eprj3`（纯 JSON）里 `profile.pcbs` / `profile.sheets` 的键名。只有我要自动布线时才加
 >    `freeroutingJar` + `sesDirWin`。
-> 5. 重启 profile 后验证，逐条原样回报结果：
+> 6. 重启 profile 后验证，逐条原样回报结果：
 >    `lceda_session {"action":"list"}`（证明能定位到 exe；失败时报错会列出探测过的每个路径）、
 >    `lceda_session {"action":"open"}`（必须返回 session id）、
 >    `lceda_run {"code":"return Object.keys(eda).filter(k=>k.startsWith('pcb_')).length"}`
 >    （PCB API 面必须返回正整数）。
-> 6. 到这一步就停，别动设计。`lceda_check` 和 `lceda_export` 是只读的；`lceda_run`、
+> 7. 到这一步就停，别动设计。`lceda_check` 和 `lceda_export` 是只读的；`lceda_run`、
 >    `lceda_pour`、`lceda_sch_wire`、`lceda_sch_netlist`、`lceda_route` 会改文件——先告诉我你
 >    准备跑什么，等我确认。
 >
@@ -175,7 +181,10 @@ LCEDA Pro 升级可能改名或移除这些调用；工具开始报 `... is not 
    解法作为评论贴到那个 issue（不重复开），没命中才新建一条，正文同时带报错、调用、
    环境**和**有效解法。两种情况记录里都会留下 issue URL。
 
-没装 `gh` 也不会坏：`search` 返回浏览器搜索链接，`submit` 返回预填好的
+没装 `gh` 也不会坏——安装提示第 2 步就是为这个准备的：Windows 用
+`winget install --id GitHub.cli`，WSL/Linux 用 `sudo apt install gh`（或把 release tarball
+放进 `~/.local/bin`），macOS 用 `brew install gh`，然后执行一次 `gh auth login`；插件在缺
+`gh` 时给出的提示也会带上当前平台该跑的那条命令。除此之外：`search` 返回浏览器搜索链接，`submit` 返回预填好的
 `github.com/.../issues/new?title=…` 链接——不用 token，插件自己不发任何网络请求。装了
 `gh` 就走你已登录的身份，插件从不持有凭据。
 

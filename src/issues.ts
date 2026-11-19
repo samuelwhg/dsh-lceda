@@ -226,6 +226,13 @@ export async function searchIssues(
   }
 }
 
+/** How to get `gh` on this platform: the one thing the user cannot be talked through twice. */
+export function ghInstall(platform: NodeJS.Platform = process.platform): string {
+  if (platform === 'win32') return 'install it with "winget install --id GitHub.cli"'
+  if (platform === 'darwin') return 'install it with "brew install gh"'
+  return 'install it with "sudo apt install gh" or the release tarball from https://github.com/cli/cli/releases'
+}
+
 /**
  * Recent issues, read straight from the API. GitHub's search index lags a few seconds behind a
  * create, so a failure filed moments ago is invisible to `--search`; listing is not.
@@ -261,7 +268,7 @@ export interface Submission {
   hint: string
 }
 
-function missingTool(e: unknown): boolean {
+export function missingTool(e: unknown): boolean {
   return e instanceof Error && e.message.startsWith('cannot start "')
 }
 
@@ -321,7 +328,7 @@ export async function submitIssue(
     if (!missingTool(e)) throw e
     return {
       ...base,
-      hint: 'gh is not installed, so nothing was sent: open prefilled in a browser to file it, or install gh (https://cli.github.com) and rerun submit',
+      hint: `gh is not installed, so nothing was sent: open ${prefilled} in a browser to file it, or ${ghInstall()}, run \"gh auth login\" once, and rerun submit`,
     }
   }
 }

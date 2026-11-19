@@ -38,25 +38,32 @@ installs, configures and smoke-tests the plugin without you hunting for document
 >
 > 1. Check prerequisites: `node -v` (>= 22.19), `dsh --version` (>= 0.2.2), and that
 >    LCEDA Pro is installed on this machine. Ask me which DSH profile to use.
-> 2. Install into that profile — from git:
+> 2. Install the `gh` CLI — `lceda_report` uses it to search and file issues. Optional
+>    (without it the plugin still records locally and hands you a prefilled issue link),
+>    but this is the one dependency a user rarely has: check `gh --version`; if missing,
+>    Windows: `winget install --id GitHub.cli`, WSL/Linux: `sudo apt install gh` or the
+>    release tarball into `~/.local/bin`, macOS: `brew install gh`. Then have me run
+>    `gh auth login` once (or paste a token into `gh auth login --with-token`) and confirm
+>    the account can open issues in `reportRepo`.
+> 3. Install into that profile — from git:
 >    `dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.git`
 >    (from a local checkout: `add /path/to/dsh-lceda`). Then confirm the bundle inserted
 >    an `id: dsh-lceda` row.
-> 3. Ask me for the `.eprj3` project path. Leave `exePath` and `spawnCwd` empty — they
+> 4. Ask me for the `.eprj3` project path. Leave `exePath` and `spawnCwd` empty — they
 >    are auto-detected (`Program Files{, (x86)}\lceda-pro` on every drive). Only set
 >    `exePath` if I say LCEDA Pro lives somewhere unusual.
-> 4. Write `projectPath` into `<profile>/cordis.patch.yml` under the existing
+> 5. Write `projectPath` into `<profile>/cordis.patch.yml` under the existing
 >    `id: dsh-lceda` row — merge into that row, never add a second one. Leave `pcbUuid`
 >    and `schUuid` empty: they are derived from the project file (first board / first
 >    schematic page). Only set them when my project has several and I want a specific
 >    one — the ids are the keys of `profile.pcbs` / `profile.sheets` in the `.eprj3`,
 >    which is plain JSON. Add `freeroutingJar` + `sesDirWin` only if I ask for autorouting.
-> 5. Restart the profile and verify, reporting each result verbatim:
+> 6. Restart the profile and verify, reporting each result verbatim:
 >    `lceda_session {"action":"list"}` (proves the exe resolves; on failure the error
 >    lists every path it probed), `lceda_session {"action":"open"}` (must return a
 >    session id), `lceda_run {"code":"return Object.keys(eda).filter(k=>k.startsWith('pcb_')).length"}`
 >    (must return a positive count for the PCB API surface).
-> 6. Stop before touching the design. `lceda_check` and `lceda_export` are read-only;
+> 7. Stop before touching the design. `lceda_check` and `lceda_export` are read-only;
 >    `lceda_run`, `lceda_pour`, `lceda_sch_wire`, `lceda_sch_netlist` and `lceda_route`
 >    can change files — tell me what you would run first and wait for my go-ahead.
 >
@@ -199,7 +206,10 @@ machine on its own.
    creates one issue whose body carries the error, the call, the environment *and* the
    fix that worked. Either way the record keeps the issue URL.
 
-No `gh` installed? Nothing breaks: `search` returns the browser search URL and
+No `gh` installed? Nothing breaks, and step 2 of the install prompt exists for that:
+`winget install --id GitHub.cli` (Windows), `sudo apt install gh` or the release tarball
+into `~/.local/bin` (WSL/Linux), `brew install gh` (macOS), then `gh auth login` once —
+any missing-`gh` hint repeats the command for the current platform. Beyond that: `search` returns the browser search URL and
 `submit` returns the same title/body as a prefilled `github.com/.../issues/new?title=…`
 link — no token, no network from the plugin. With `gh`, `submit` uses the login you
 already have; the plugin never holds a credential.
