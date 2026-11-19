@@ -62,9 +62,43 @@ function toLocal(p: string): string {
   return IS_WIN ? p : winToWsl(p)
 }
 
-function needUuid(cfg: ConfigShape, kind: 'pcb' | 'sch'): string {
-  const u = kind === 'pcb' ? cfg.pcbUuid : cfg.schUuid
-  if (!u) throw new Error(`config ${kind}Uuid is not set: set ${kind}Uuid in the dsh-lceda config (see README.md#configuration)`)
+interface ProjectIds { pcb?: string; sch?: string }
+
+interface CachedIds { mtimeMs: number; size: number; ids: ProjectIds }
+
+/** Document ids derived from a `.eprj3` (plain JSON: profile.pcbs / profile.sheets keys). */
+const idCache = new Map<string, CachedIds>()
+
+export function projectIds(projectPath: string): ProjectIds {
+  if (!projectPath) return {}
+  const local = toLocal(projectPath)
+  try {
+    const { mtimeMs, size } = fs.statSync(local)
+    const hit = idCache.get(local)
+    if (hit && hit.mtimeMs === mtimeMs && hit.size === size) return hit.ids
+    const doc = JSON.parse(fs.readFileSync(local, 'utf8')) as { profile?: { pcbs?: object; sheets?: object } }
+    const ids: ProjectIds = {
+      pcb: Object.keys(doc.profile?.pcbs ?? {})[0],
+      sch: Object.keys(doc.profile?.sheets ?? {})[0],
+    }
+    idCache.set(local, { mtimeMs, size, ids })
+    return ids
+  } catch {
+    return {}
+  }
+}
+
+/** Configured id, else the first one of that kind inside the configured project. */
+export function needUuid(cfg: ConfigShape, kind: 'pcb' | 'sch'): string {
+  const what = kind === 'pcb' ? 'board' : 'schematic page'
+  const u = (kind === 'pcb' ? cfg.pcbUuid : cfg.schUuid) || projectIds(cfg.projectPath)[kind]
+  if (!u) {
+    throw new Error(
+      `config ${kind}Uuid is not set, and config projectPath ` +
+        (cfg.projectPath ? `("${cfg.projectPath}") contains no ${what}` : 'is empty') +
+        `: set projectPath to a project that has one, or set ${kind}Uuid directly (see README.md#configuration)`,
+    )
+  }
   return u
 }
 

@@ -45,20 +45,18 @@ installs, configures and smoke-tests the plugin without you hunting for document
 > 3. Ask me for the `.eprj3` project path. Leave `exePath` and `spawnCwd` empty — they
 >    are auto-detected (`Program Files{, (x86)}\lceda-pro` on every drive). Only set
 >    `exePath` if I say LCEDA Pro lives somewhere unusual.
-> 4. Derive the document ids yourself instead of asking me: `.eprj3` is plain JSON, so
->    run
->    `node -e "const d=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'));const p=d.profile;console.log(Object.keys(p.pcbs)[0],Object.keys(p.sheets)[0])" "<path>.eprj3"`
->    — first value is `pcbUuid`, second `schUuid`. (First key = first board / first
->    schematic page; when there are several, tell me which one you picked.)
-> 5. Write those into `<profile>/cordis.patch.yml` under the existing `id: dsh-lceda`
->    row as `projectPath`, `pcbUuid`, `schUuid` — merge into that row, never add a
->    second one. Add `freeroutingJar` + `sesDirWin` only if I ask for autorouting.
-> 6. Restart the profile and verify, reporting each result verbatim:
+> 4. Write `projectPath` into `<profile>/cordis.patch.yml` under the existing
+>    `id: dsh-lceda` row — merge into that row, never add a second one. Leave `pcbUuid`
+>    and `schUuid` empty: they are derived from the project file (first board / first
+>    schematic page). Only set them when my project has several and I want a specific
+>    one — the ids are the keys of `profile.pcbs` / `profile.sheets` in the `.eprj3`,
+>    which is plain JSON. Add `freeroutingJar` + `sesDirWin` only if I ask for autorouting.
+> 5. Restart the profile and verify, reporting each result verbatim:
 >    `lceda_session {"action":"list"}` (proves the exe resolves; on failure the error
 >    lists every path it probed), `lceda_session {"action":"open"}` (must return a
 >    session id), `lceda_run {"code":"return Object.keys(eda).filter(k=>k.startsWith('pcb_')).length"}`
 >    (must return a positive count for the PCB API surface).
-> 7. Stop before touching the design. `lceda_check` and `lceda_export` are read-only;
+> 6. Stop before touching the design. `lceda_check` and `lceda_export` are read-only;
 >    `lceda_run`, `lceda_pour`, `lceda_sch_wire`, `lceda_sch_netlist` and `lceda_route`
 >    can change files — tell me what you would run first and wait for my go-ahead.
 >
@@ -68,10 +66,11 @@ installs, configures and smoke-tests the plugin without you hunting for document
 
 ## Configuration
 
-Per-project values ship with **no defaults**: set `projectPath`, `pcbUuid`,
-`schUuid`, and — for autorouting — `freeroutingJar` / `sesDirWin` for your own
-project. Add them to the profile that installed the plugin, under the same `id` the
-bundle inserted:
+Per-project values ship with **no defaults**: set `projectPath` for your own project
+(`pcbUuid` / `schUuid` are derived from it — the first board and the first schematic
+page — and only need setting when a project has several), and — for autorouting —
+`freeroutingJar` / `sesDirWin`. Add them to the profile that installed the plugin,
+under the same `id` the bundle inserted:
 
 ```yaml
 # <profile>/cordis.patch.yml
@@ -79,8 +78,7 @@ bundle inserted:
   name: dsh-lceda
   config:
     projectPath: D:\work\board.eprj3                       # Windows path, opened headless
-    pcbUuid: <pcb document id>
-    schUuid: <schematic page id>
+    # pcbUuid / schUuid: optional, derived from projectPath (first board / first page)
     freeroutingJar: /home/me/freerouting/freerouting.jar   # only for lceda_route
     sesDirWin: D:\work\autoroute                           # only for lceda_route
 ```
@@ -90,8 +88,8 @@ bundle inserted:
 | `exePath` | *(empty)* | Path to `lceda-pro.exe`: WSL `/mnt/d/Program Files/…` or native Windows `D:\Program Files\…`. Empty: auto-detected under `Program Files{, (x86)}` on every drive (WSL `/mnt/<letter>`, Windows existing `C:`–`Z:`), so a D:/E: install works too |
 | `spawnCwd` | *(empty)* | cwd for the Windows exe; empty = the drive root of `exePath` (a drive root avoids UNC cwd issues) |
 | `projectPath` | *(empty)* | Windows `.eprj3` path opened headless |
-| `pcbUuid` | *(empty)* | PCB document id for the `openDocument` prelude |
-| `schUuid` | *(empty)* | schematic page id for the `openDocument` prelude |
+| `pcbUuid` | *(empty)* | PCB document id for the `openDocument` prelude; empty = the first board inside `projectPath` |
+| `schUuid` | *(empty)* | schematic page id for the `openDocument` prelude; empty = the first schematic page inside `projectPath` |
 | `freeroutingJar` | *(empty)* | Freerouting jar; required by `lceda_route` |
 | `javaBin` | `java` | Java binary for Freerouting |
 | `sesDirWin` | *(empty)* | Windows-visible dir where `board.ses` is placed for import; required by `lceda_route` |
@@ -108,7 +106,7 @@ path, e.g. `$.invokeTimeoutMs expected number but got nope`.
 
 ## Quickstart
 
-1. Set `projectPath`, `pcbUuid` as above and restart the profile (leave `exePath` empty unless LCEDA Pro is installed somewhere unusual — `lceda_session list` names every path it searched when it cannot find the exe).
+1. Set `projectPath` as above and restart the profile (leave `exePath` empty unless LCEDA Pro is installed somewhere unusual — `lceda_session list` names every path it searched when it cannot find the exe).
 2. `lceda_session` `{ "action": "list" }` — confirms the CLI handshake, no session opened yet.
 3. `lceda_session` `{ "action": "open" }` — opens the project headless, returns `sessionId`.
 4. `lceda_run` `{ "code": "return Object.keys(eda).filter(k => k.startsWith('pcb_'))" }` — the PCB API surface of your installed editor build.

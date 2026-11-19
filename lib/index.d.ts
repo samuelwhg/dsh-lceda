@@ -17,5 +17,12 @@ interface Config {
 declare const Config: Schema<Config>;
 declare const name = "dsh-lceda";
 declare const inject: string[];
+interface ProjectIds {
+  pcb?: string;
+  sch?: string;
+}
+declare function projectIds(projectPath: string): ProjectIds;
+/** Configured id, else the first one of that kind inside the configured project. */
+declare function needUuid(cfg: Config, kind: 'pcb' | 'sch'): string;
 declare function apply(ctx: Context, config: Config): void;
-export { Config, apply, inject, name };
+export { Config, apply, inject, name, needUuid, projectIds };

@@ -40,19 +40,17 @@ dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.gi
 > 3. 问我要 `.eprj3` 工程路径。`exePath` 与 `spawnCwd` 留空——会按各盘
 >    `Program Files{, (x86)}\lceda-pro` 自动探测。只有我说 LCEDA 装在非常规位置时才显式设
 >    `exePath`。
-> 4. 别问我要文档 id，自己从工程文件里取：`.eprj3` 就是纯 JSON，执行
->    `node -e "const d=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'));const p=d.profile;console.log(Object.keys(p.pcbs)[0],Object.keys(p.sheets)[0])" "<路径>.eprj3"`
->    ——第一个值是 `pcbUuid`，第二个是 `schUuid`。（取的是第一块板 / 第一张原理图页；有多个时
->    告诉我你选了哪个。）
-> 5. 把这些写进 `<profile>/cordis.patch.yml` 里已有的 `id: dsh-lceda` 行（`projectPath`、
->    `pcbUuid`、`schUuid`）——合并进那一行，绝不要再加一行。只有我要自动布线时才加
+> 4. 把 `projectPath` 写进 `<profile>/cordis.patch.yml` 里已有的 `id: dsh-lceda` 行——合并进
+>    那一行，绝不要再加一行。`pcbUuid` / `schUuid` 留空即可：插件会自动取工程文件里的第一块
+>    板 / 第一张原理图页。只有工程里有多块板、多页原理图且我要指定某个时才填——id 就是
+>    `.eprj3`（纯 JSON）里 `profile.pcbs` / `profile.sheets` 的键名。只有我要自动布线时才加
 >    `freeroutingJar` + `sesDirWin`。
-> 6. 重启 profile 后验证，逐条原样回报结果：
+> 5. 重启 profile 后验证，逐条原样回报结果：
 >    `lceda_session {"action":"list"}`（证明能定位到 exe；失败时报错会列出探测过的每个路径）、
 >    `lceda_session {"action":"open"}`（必须返回 session id）、
 >    `lceda_run {"code":"return Object.keys(eda).filter(k=>k.startsWith('pcb_')).length"}`
 >    （PCB API 面必须返回正整数）。
-> 7. 到这一步就停，别动设计。`lceda_check` 和 `lceda_export` 是只读的；`lceda_run`、
+> 6. 到这一步就停，别动设计。`lceda_check` 和 `lceda_export` 是只读的；`lceda_run`、
 >    `lceda_pour`、`lceda_sch_wire`、`lceda_sch_netlist`、`lceda_route` 会改文件——先告诉我你
 >    准备跑什么，等我确认。
 >
@@ -61,8 +59,8 @@ dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.gi
 
 ## 配置
 
-按工程设置的值**没有默认值**：`projectPath`、`pcbUuid`、`schUuid`，自动布线还需
-`freeroutingJar` / `sesDirWin`。写进安装该插件的 profile，`id` 与 bundle 插入的行一致：
+按工程设置的值**没有默认值**：`projectPath`（必填），`pcbUuid` / `schUuid` 留空会从工程文件里
+自动取（多板 / 多页时显式指定），自动布线还需 `freeroutingJar` / `sesDirWin`。写进安装该插件的 profile，`id` 与 bundle 插入的行一致：
 
 ```yaml
 # <profile>/cordis.patch.yml
@@ -70,8 +68,7 @@ dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.gi
   name: dsh-lceda
   config:
     projectPath: D:\work\board.eprj3                       # Windows 路径，无头打开
-    pcbUuid: <PCB 文档 id>
-    schUuid: <原理图页 id>
+    # pcbUuid / schUuid：可选，留空即从 projectPath 取第一块板 / 第一张原理图页
     freeroutingJar: /home/me/freerouting/freerouting.jar   # 仅 lceda_route 需要
     sesDirWin: D:\work\autoroute                           # 仅 lceda_route 需要
 ```
@@ -81,8 +78,8 @@ dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.gi
 | `exePath` | *（空）* | `lceda-pro.exe` 的路径：WSL `/mnt/d/Program Files/…`，或 Windows 原生 `D:\Program Files\…`。留空即自动探测：各盘的 `Program Files{, (x86)}`（WSL 扫 `/mnt/<盘>`，Windows 扫存在的 `C:`–`Z:`），装在 D:/E: 也能找到 |
 | `spawnCwd` | *（空）* | 启动 Windows exe 的 cwd；留空取 `exePath` 所在盘根（盘根可避开 UNC cwd 问题） |
 | `projectPath` | *（空）* | 无头打开的 Windows `.eprj3` 路径 |
-| `pcbUuid` | *（空）* | `openDocument` 前奏用的 PCB 文档 id |
-| `schUuid` | *（空）* | `openDocument` 前奏用的原理图页 id |
+| `pcbUuid` | *（空）* | `openDocument` 前奏用的 PCB 文档 id；留空即取 `projectPath` 工程里的第一块板 |
+| `schUuid` | *（空）* | `openDocument` 前奏用的原理图页 id；留空即取 `projectPath` 工程里的第一张原理图页 |
 | `freeroutingJar` | *（空）* | Freerouting jar，`lceda_route` 必需 |
 | `javaBin` | `java` | Freerouting 用的 Java |
 | `sesDirWin` | *（空）* | 导入用的 `board.ses` 落盘目录（Windows 可见），`lceda_route` 必需 |
@@ -98,7 +95,7 @@ dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.gi
 
 ## 5 分钟首次跑通
 
-1. 按上面设好 `projectPath`、`pcbUuid`，重启 profile（`exePath` 留空即可，除非 LCEDA 装在非常规位置——找不到 exe 时 `lceda_session list` 会把搜过的路径全列出来）。
+1. 按上面设好 `projectPath`，重启 profile（`exePath` 留空即可，除非 LCEDA 装在非常规位置——找不到 exe 时 `lceda_session list` 会把搜过的路径全列出来）。
 2. `lceda_session` `{ "action": "list" }` —— 确认 CLI 握手，此时还没开会话。
 3. `lceda_session` `{ "action": "open" }` —— 无头打开工程，返回 `sessionId`。
 4. `lceda_run` `{ "code": "return Object.keys(eda).filter(k => k.startsWith('pcb_'))" }` —— 看你装的编辑器版本的 PCB API 面。
