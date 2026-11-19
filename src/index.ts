@@ -273,7 +273,7 @@ const pads = [];
 for (const c of comps) {
   const ref = await c.getState_Designator();
   const pins = await eda.pcb_PrimitiveComponent.getAllPinsByPrimitiveId(c.primitiveId);
-  for (const p of pins || []) pads.push({ id: ref + '.' + p.padNumber, net: p.net || '', x: p.x, y: p.y, layer: p.layer ?? 1, through: (p.hole ?? 0) > 0 });
+  for (const p of pins || []) pads.push({ id: ref + '.' + p.padNumber, net: p.net || '', x: p.x, y: p.y, layer: p.layer ?? 1, through: (Array.isArray(p.hole) ? (p.hole[1] ?? 0) > 0 : (p.hole ?? 0) > 0) || p.layer === 12 });
 }
 const lines = await getAllRetry(() => eda.pcb_PrimitiveLine.getAll());
 const segs = lines.map((l) => ({ net: l.net || '', ax: l.startX, ay: l.startY, bx: l.endX, by: l.endY, layer: l.layer }));
