@@ -14,7 +14,9 @@ UTF-16LE CSV exports, and never trusts `ok:true` as business success.
 
 ## Install
 
-Requires DSH >= 0.2.2 (Cordis 4) and Node >= 22.19. The published package ships a
+Requires DSH >= 0.2.2 (Cordis 4), Node >= 22.19, and LCEDA Pro on Windows (native DSH
+desktop or WSL — both are supported: paths are auto-detected and `sesDirWin` is only
+translated to `/mnt/<drive>` when running under WSL). The published package ships a
 built `lib/`, so installing runs no build script.
 
 ```sh
@@ -48,7 +50,7 @@ bundle inserted:
 
 | key | default | meaning |
 | --- | --- | --- |
-| `exePath` | *(empty)* | LCEDA Pro CLI executable as a WSL path. Empty: auto-detected as `/mnt/<drive>/Program Files/lceda-pro/lceda-pro.exe` on every mounted drive, so C:/D:/E: installs all work |
+| `exePath` | *(empty)* | Path to `lceda-pro.exe`: WSL `/mnt/d/Program Files/…` or native Windows `D:\Program Files\…`. Empty: auto-detected under `Program Files{, (x86)}` on every drive (WSL `/mnt/<letter>`, Windows existing `C:`–`Z:`), so a D:/E: install works too |
 | `spawnCwd` | *(empty)* | cwd for the Windows exe; empty = the drive root of `exePath` (a drive root avoids UNC cwd issues) |
 | `projectPath` | *(empty)* | Windows `.eprj3` path opened headless |
 | `pcbUuid` | *(empty)* | PCB document id for the `openDocument` prelude |
@@ -56,7 +58,7 @@ bundle inserted:
 | `freeroutingJar` | *(empty)* | Freerouting jar; required by `lceda_route` |
 | `javaBin` | `java` | Java binary for Freerouting |
 | `sesDirWin` | *(empty)* | Windows-visible dir where `board.ses` is placed for import; required by `lceda_route` |
-| `workDir` | `.dsh-lceda` | WSL dir for DSN/SES/export artifacts, relative to the session workspace |
+| `workDir` | `.dsh-lceda` | Local dir for DSN/SES/export artifacts, relative to the session workspace |
 | `invokeTimeoutMs` | `120000` | default per-invoke budget |
 | `routeTimeoutMs` | `900000` | Freerouting budget |
 | `allowGuiConcurrent` | `false` | allow writes while a user GUI session is open (dangerous) |
@@ -153,7 +155,7 @@ sessions it owns.
 
 | symptom | next step |
 | --- | --- |
-| `LCEDA Pro not found: install it, or set config exePath ...` | install LCEDA Pro, or set `exePath` to `lceda-pro.exe`'s WSL path; the message lists every `/mnt/*/Program Files` it probed |
+| `LCEDA Pro not found: install it, or set config exePath ...` | install LCEDA Pro, or set `exePath` to `lceda-pro.exe` (WSL `/mnt/d/…`, Windows `D:\…`); the message lists every drive root it probed |
 | `cannot start "<exePath>" ... ENOENT` | the configured path does not exist — fix `exePath`, or clear it to fall back to auto-detection |
 | `no project path` | pass a `.eprj3` path to `lceda_session open` or set `projectPath` |
 | `config pcbUuid is not set` / `schUuid` | set the document id for that board/page (see Configuration) |
@@ -163,7 +165,7 @@ sessions it owns.
 | DRC crashes the session | `lceda_check` falls back to `getDrcResult`; run `drc` in the GUI for an authoritative report |
 | `lceda_route` fails: jar/java missing | set `freeroutingJar`, `javaBin`; `java -version` must work in the same shell |
 | Freerouting ends with unrouted nets | raise `routeTimeoutMs` / `passes`, or pre-route those nets; Freerouting does not preserve hand-drawn buses |
-| `board.ses` not imported | `sesDirWin` must be a path the Windows editor can read (not a WSL-only path) |
+| `board.ses` not imported | `sesDirWin` must be a path the Windows editor can read (`D:\...` or `/mnt/d/...`; not a WSL-only path) |
 | writes are refused | a GUI session holds the project — that guard is the feature, not a bug |
 
 ## Development
@@ -179,7 +181,7 @@ npm_config_cache="$PWD/.npm-cache" npx -y dsh-standards@1.6.12 check . --scope e
 ## Capability declaration note (DSC-11.5)
 
 `fs:read`, `fs:write` and `subprocess` are declared because the plugin really uses
-them, but through `node:fs` / `node:child_process` directly (export decode to a WSL
+them, but through `node:fs` / `node:child_process` directly (export decode to a local
 directory, spawning the Windows LCEDA CLI and the Freerouting JVM) rather than the
 `ctx.fs` / `ctx.subprocess` seams the static trigger scans for. `tools:register` and
 the skill registration are the seam-visible triggers. The declarations stay: they

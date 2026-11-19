@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { access, readdir } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, parse } from 'node:path'
 import type { Config } from './config'
 
 export interface Envelope {
@@ -10,8 +10,18 @@ export interface Envelope {
   raw: string
 }
 
+const IS_WIN = process.platform === 'win32'
+
 /** Relative install locations of the CLI inside a Windows drive root. */
-const EXE_TAIL = ['Program Files/lceda-pro/lceda-pro.exe', 'Program Files (x86)/lceda-pro/lceda-pro.exe']
+const EXE_TAIL = [
+  join('Program Files', 'lceda-pro', 'lceda-pro.exe'),
+  join('Program Files (x86)', 'lceda-pro', 'lceda-pro.exe'),
+]
+
+/** Candidate exe paths under a list of drive roots (WSL `/mnt/d`, Windows `D:\`). */
+export function exeCandidates(roots: string[]): string[] {
+  return roots.flatMap((r) => EXE_TAIL.map((t) => join(r, t)))
+}
 
 /** First path that exists; `tried` keeps the full miss list for the error text. */
 export async function firstExisting(paths: string[]): Promise<{ found?: string; tried: string[] }> {
@@ -24,13 +34,28 @@ export async function firstExisting(paths: string[]): Promise<{ found?: string; 
   return { tried: paths }
 }
 
+/** Drives worth probing: mounted `/mnt/<letter>` on WSL, existing `X:\` roots on Windows. */
+export async function driveRoots(
+  opts: { platform?: NodeJS.Platform; exists?: (p: string) => Promise<boolean> } = {},
+): Promise<string[]> {
+  const exists = opts.exists ?? (async (p: string) => (await firstExisting([p])).found !== undefined)
+  if ((opts.platform ?? process.platform) === 'win32') {
+    const roots: string[] = []
+    for (const letter of 'CDEFGHIJKLMNOPQRSTUVWXYZ') {
+      const root = `${letter}:\\`
+      if (await exists(root)) roots.push(root)
+    }
+    return roots
+  }
+  const mounts = await readdir('/mnt').catch(() => [] as string[])
+  return mounts.filter((d) => /^[a-z]$/i.test(d)).sort().map((d) => `/mnt/${d}`)
+}
+
 let autoExe: string | undefined
 
 async function detectExe(): Promise<{ found?: string; tried: string[] }> {
   if (autoExe && (await firstExisting([autoExe])).found) return { found: autoExe, tried: [autoExe] }
-  const mounts = await readdir('/mnt').catch(() => [] as string[])
-  const drives = mounts.filter((d) => /^[a-z]$/i.test(d)).sort().map((d) => `/mnt/${d}`)
-  const hit = await firstExisting(drives.flatMap((r) => EXE_TAIL.map((t) => join(r, t))))
+  const hit = await firstExisting(exeCandidates(await driveRoots()))
   if (hit.found) autoExe = hit.found
   return hit
 }
@@ -49,17 +74,19 @@ export async function resolveExe(cfg: Config): Promise<string> {
   const auto = await detectExe()
   if (!auto.found) {
     throw new Error(
-      `LCEDA Pro not found: install it, or set config exePath to lceda-pro.exe as a WSL path` +
+      `LCEDA Pro not found: install it, or set config exePath to lceda-pro.exe (WSL: /mnt/d/..., Windows: D:\\...)` +
         ` (looked in ${auto.tried.join(', ')}; see README.md#troubleshooting)`,
     )
   }
   return auto.found
 }
 
-/** Drive root of a WSL path to a Windows exe: a drive root is a valid cwd for it. */
-function driveRoot(p: string): string {
-  const m = /^\/mnt\/([a-z])\//i.exec(p)
-  return m ? `/mnt/${m[1]}` : '/'
+/** Drive root of a path to the Windows exe (`D:\\` or `/mnt/d`): a drive root is a valid cwd for it. */
+export function driveRoot(p: string): string {
+  const win = /^([A-Za-z]):[\\/]/.exec(p)
+  if (win) return `${win[1].toUpperCase()}:\\`
+  const wsl = /^\/mnt\/([a-z])\//i.exec(p)
+  return wsl ? `/mnt/${wsl[1].toLowerCase()}` : parse(p).root || '/'
 }
 
 /** Spawn the Windows CLI and parse its single JSON envelope from stdout. */

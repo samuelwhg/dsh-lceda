@@ -50,9 +50,16 @@ async function call(cfg: ConfigShape, owned: Owned, session: string | undefined,
   }
 }
 
+const IS_WIN = process.platform === 'win32'
+
 function winToWsl(p: string): string {
   const m = /^([A-Za-z]):[\\/](.*)$/.exec(p)
   return m ? `/mnt/${m[1].toLowerCase()}/${m[2].replace(/\\/g, '/')}` : p
+}
+
+/** Editor-side Windows path -> a path this process can touch (identity unless WSL). */
+function toLocal(p: string): string {
+  return IS_WIN ? p : winToWsl(p)
 }
 
 function needUuid(cfg: ConfigShape, kind: 'pcb' | 'sch'): string {
@@ -153,10 +160,10 @@ export function apply(ctx: Context, config: ConfigShape): void {
 
   ctx.tools.register(defineTool({
     name: 'lceda_export',
-    description: 'Export manufacturing/design artifacts and decode them to a WSL directory: gerber (zip), bom (csv), pnp (csv), pdf (assembly), netlist (Protel2), svg/png (schematic). CSV UTF-16LE is normalized to UTF-8.',
+    description: 'Export manufacturing/design artifacts and decode them to a local directory: gerber (zip), bom (csv), pnp (csv), pdf (assembly), netlist (Protel2), svg/png (schematic). CSV UTF-16LE is normalized to UTF-8.',
     parameters: {
       kinds: { type: 'array', items: { type: 'string' }, description: 'Subset of gerber,bom,pnp,pdf,netlist,svg,png (default all).' },
-      outDir: { type: 'string', description: 'WSL output dir (default config workDir/exports).' },
+      outDir: { type: 'string', description: 'Output dir (default config workDir/exports); WSL: /mnt/..., Windows: D:\\...' },
       name: { type: 'string', description: 'Base file name (default board).' },
       session: { type: 'string' },
     },
@@ -209,7 +216,7 @@ return out;`
     parameters: {
       passes: { type: 'number', description: 'Freerouting -mp passes (default 100).' },
       session: { type: 'string' },
-      workDir: { type: 'string', description: 'WSL dir for dsn/ses/log (default config workDir).' },
+      workDir: { type: 'string', description: 'Dir for dsn/ses/log (default config workDir); WSL: /mnt/..., Windows: D:\\...' },
     },
     output: { schema: { type: 'object', additionalProperties: true }, render: jsonRender },
     async execute(args) {
@@ -239,9 +246,10 @@ return toB64(await f.arrayBuffer());`
       const logText = fs.readFileSync(logPath, 'utf8')
       const unrouted = /(\d+)\s+unrouted/i.exec(logText)?.[1] ?? null
       const violations = /(\d+)\s+clearance violation/i.exec(logText)?.[1] ?? null
-      const sesWin = `${cfg.sesDirWin}/board.ses`
-      fs.mkdirSync(winToWsl(cfg.sesDirWin), { recursive: true })
-      fs.copyFileSync(sesPath, path.join(winToWsl(cfg.sesDirWin), 'board.ses'))
+      const sesDir = cfg.sesDirWin.replace(/[\\/]+$/, '')
+      const sesWin = `${sesDir}${sesDir.includes('\\') ? '\\' : '/'}board.ses`
+      fs.mkdirSync(toLocal(cfg.sesDirWin), { recursive: true })
+      fs.copyFileSync(sesPath, path.join(toLocal(cfg.sesDirWin), 'board.ses'))
       const code2 = `${RETRY_GETALL}
 await eda.dmt_EditorControl.openDocument(${JSON.stringify(needUuid(cfg, 'pcb'))});
 await eda.dmt_EditorControl.waitForDocumentReady(${JSON.stringify(needUuid(cfg, 'pcb'))}, 30000);
@@ -260,7 +268,7 @@ return { imported, tracks: lines.length };`
     description: 'Verify the board: drc (pcb_Drc.check with getDrcResult fallback; headless check can crash the session), nets (pad nets vs an expected ref|pin->net JSON file), conn (union-find over pads/tracks/vias; pour copper is NOT counted, GND-only-by-pour reads as isolated), all.',
     parameters: {
       mode: { type: 'string', description: 'drc | nets | conn | all (default all).' },
-      expectedFile: { type: 'string', description: 'WSL path of expected ref|pin->net JSON for nets mode.' },
+      expectedFile: { type: 'string', description: 'Path of expected ref|pin->net JSON for nets mode.' },
       session: { type: 'string' },
     },
     output: { schema: { type: 'object', additionalProperties: true }, render: jsonRender },
@@ -402,7 +410,7 @@ return { created: ids.length, ids };`
     name: 'lceda_sch_netlist',
     description: 'Compile the schematic netlist (Protel2) and optionally diff every ref|pin->net against an expected JSON file. pin.net fields only reflect net labels; this compiled netlist is the source of truth for connectivity.',
     parameters: {
-      compareFile: { type: 'string', description: 'WSL path of expected ref|pin->net JSON.' },
+      compareFile: { type: 'string', description: 'Path of expected ref|pin->net JSON.' },
       session: { type: 'string' },
     },
     output: { schema: { type: 'object', additionalProperties: true }, render: jsonRender },

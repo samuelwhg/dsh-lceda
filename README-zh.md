@@ -12,7 +12,8 @@ DeepSeek Harness 的 **嘉立创 EDA（LCEDA 专业版）** 无头开发插件�
 
 ## 安装
 
-需要 DSH >= 0.2.2（Cordis 4）与 Node >= 22.19。发行包已带构建产物 `lib/`，安装时不跑构建脚本。
+需要 DSH >= 0.2.2（Cordis 4）、Node >= 22.19，以及 Windows 上的 LCEDA 专业版（DSH 桌面端原生
+运行和 WSL 里运行都支持：exe 路径自动探测，`sesDirWin` 只在 WSL 下翻译成 `/mnt/<盘>`）。发行包已带构建产物 `lib/`，安装时不跑构建脚本。
 
 ```sh
 # 从本地检出安装
@@ -43,7 +44,7 @@ dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.gi
 
 | 键 | 默认值 | 含义 |
 | --- | --- | --- |
-| `exePath` | *（空）* | LCEDA 专业版 CLI 的 WSL 路径。留空即自动探测：每个挂载盘下的 `/mnt/<盘>/Program Files/lceda-pro/lceda-pro.exe`，装在 C:/D:/E: 都能找到 |
+| `exePath` | *（空）* | `lceda-pro.exe` 的路径：WSL `/mnt/d/Program Files/…`，或 Windows 原生 `D:\Program Files\…`。留空即自动探测：各盘的 `Program Files{, (x86)}`（WSL 扫 `/mnt/<盘>`，Windows 扫存在的 `C:`–`Z:`），装在 D:/E: 也能找到 |
 | `spawnCwd` | *（空）* | 启动 Windows exe 的 cwd；留空取 `exePath` 所在盘根（盘根可避开 UNC cwd 问题） |
 | `projectPath` | *（空）* | 无头打开的 Windows `.eprj3` 路径 |
 | `pcbUuid` | *（空）* | `openDocument` 前奏用的 PCB 文档 id |
@@ -51,7 +52,7 @@ dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.gi
 | `freeroutingJar` | *（空）* | Freerouting jar，`lceda_route` 必需 |
 | `javaBin` | `java` | Freerouting 用的 Java |
 | `sesDirWin` | *（空）* | 导入用的 `board.ses` 落盘目录（Windows 可见），`lceda_route` 必需 |
-| `workDir` | `.dsh-lceda` | DSN/SES/导出产物的 WSL 目录，相对会话工作区 |
+| `workDir` | `.dsh-lceda` | DSN/SES/导出产物的本地目录，相对会话工作区 |
 | `invokeTimeoutMs` | `120000` | 单次 invoke 默认预算 |
 | `routeTimeoutMs` | `900000` | Freerouting 预算 |
 | `allowGuiConcurrent` | `false` | 允许 GUI 会话存在时写操作（危险） |
@@ -137,7 +138,7 @@ dsh plugin --profile <profile> remove dsh-lceda                                 
 
 | 现象 | 下一步 |
 | --- | --- |
-| `LCEDA Pro not found: install it, or set config exePath ...` | 装 LCEDA 专业版，或把 `exePath` 指到 `lceda-pro.exe` 的 WSL 路径；报错里会列出探测过的每个 `/mnt/*/Program Files` |
+| `LCEDA Pro not found: install it, or set config exePath ...` | 装 LCEDA 专业版，或把 `exePath` 指到 `lceda-pro.exe`（WSL `/mnt/d/…`，Windows `D:\…`）；报错里会列出探测过的每个盘根 |
 | `cannot start "<exePath>" ... ENOENT` | 配置的路径不存在——改 `exePath`，或清空它回退自动探测 |
 | `no project path` | 给 `lceda_session open` 传 `.eprj3` 路径，或设 `projectPath` |
 | `config pcbUuid is not set` / `schUuid` | 为对应板/页设置文档 id（见「配置」） |
@@ -147,7 +148,7 @@ dsh plugin --profile <profile> remove dsh-lceda                                 
 | DRC 把会话搞崩 | `lceda_check` 会回退到 `getDrcResult`；要权威报告在 GUI 里跑 `drc` |
 | `lceda_route` 报 jar/java 缺失 | 设 `freeroutingJar`、`javaBin`，同一 shell 里 `java -version` 要能跑 |
 | Freerouting 跑完仍有未布通网 | 调大 `routeTimeoutMs` / `passes`，或先手工布；Freerouting 不保留手画总线 |
-| `board.ses` 没导入 | `sesDirWin` 必须是 Windows 编辑器能读到的路径（不能只在 WSL 里） |
+| `board.ses` 没导入 | `sesDirWin` 必须是 Windows 编辑器能读到的路径（`D:\...` 或 `/mnt/d/...`，不能只在 WSL 里） |
 | 写操作被拒 | 有 GUI 会话占着工程——这是护栏，不是 bug |
 
 ## 开发

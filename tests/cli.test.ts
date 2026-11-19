@@ -1,9 +1,9 @@
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { Config } from '../src/config'
-import { firstExisting, resolveExe } from '../src/cli'
+import { driveRoot, driveRoots, exeCandidates, firstExisting, resolveExe } from '../src/cli'
 
 describe('exe discovery', () => {
   it('returns the first candidate that exists, keeps the miss list', async () => {
@@ -14,6 +14,28 @@ describe('exe discovery', () => {
     expect(hit.found).toBe(exe)
     expect(hit.tried).toEqual([join(dir, 'none.exe'), exe])
     expect((await firstExisting([join(dir, 'none.exe')])).found).toBeUndefined()
+  })
+
+  it('probes Program Files and its x86 sibling under every drive root', () => {
+    const found = exeCandidates(['R']).map((p) => relative('R', p))
+    expect(found).toEqual([
+      join('Program Files', 'lceda-pro', 'lceda-pro.exe'),
+      join('Program Files (x86)', 'lceda-pro', 'lceda-pro.exe'),
+    ])
+  })
+
+  it('enumerates existing Windows drive roots and skips absent ones', async () => {
+    const roots = await driveRoots({
+      platform: 'win32',
+      exists: async (p) => p === 'C:\\' || p === 'E:\\',
+    })
+    expect(roots).toEqual(['C:\\', 'E:\\'])
+  })
+
+  it('derives the spawn cwd drive root for WSL and Windows exe paths', () => {
+    expect(driveRoot('/mnt/D/Program Files/lceda-pro/lceda-pro.exe')).toBe('/mnt/d')
+    expect(driveRoot('D:\\Program Files\\lceda-pro\\lceda-pro.exe')).toBe('D:\\')
+    expect(driveRoot('d:/tools/lceda-pro.exe')).toBe('D:\\')
   })
 
   it('accepts an existing exePath and rejects a missing one with the path named', async () => {
