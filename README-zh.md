@@ -25,6 +25,40 @@ dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.gi
 重启该 profile。bundle 的 `cordis.patch.yml` 会插入 `dsh-lceda` 这一行，八个 `lceda_*`
 工具与 `lceda-dev` skill 自动出现，无需手改配置。
 
+## 让 AI 自己装
+
+把下面这段整块交给一台能在 DSH 所在机器上执行命令的 AI——它会装好、配好并冒烟验证，
+不用你自己去找文档 id：
+
+> 安装 `dsh-lceda` 插件，并让它在我的工程上跑通。
+>
+> 1. 先查前置条件：`node -v`（>= 22.19）、`dsh --version`（>= 0.2.2），以及本机是否装了
+>    LCEDA 专业版。问清我要装进哪个 DSH profile。
+> 2. 装进该 profile——从 git：
+>    `dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.git`
+>    （本地目录则 `add /path/to/dsh-lceda`）。装完确认 bundle 插入了 `id: dsh-lceda` 那一行。
+> 3. 问我要 `.eprj3` 工程路径。`exePath` 与 `spawnCwd` 留空——会按各盘
+>    `Program Files{, (x86)}\lceda-pro` 自动探测。只有我说 LCEDA 装在非常规位置时才显式设
+>    `exePath`。
+> 4. 别问我要文档 id，自己从工程文件里取：`.eprj3` 就是纯 JSON，执行
+>    `node -e "const d=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'));const p=d.profile;console.log(Object.keys(p.pcbs)[0],Object.keys(p.sheets)[0])" "<路径>.eprj3"`
+>    ——第一个值是 `pcbUuid`，第二个是 `schUuid`。（取的是第一块板 / 第一张原理图页；有多个时
+>    告诉我你选了哪个。）
+> 5. 把这些写进 `<profile>/cordis.patch.yml` 里已有的 `id: dsh-lceda` 行（`projectPath`、
+>    `pcbUuid`、`schUuid`）——合并进那一行，绝不要再加一行。只有我要自动布线时才加
+>    `freeroutingJar` + `sesDirWin`。
+> 6. 重启 profile 后验证，逐条原样回报结果：
+>    `lceda_session {"action":"list"}`（证明能定位到 exe；失败时报错会列出探测过的每个路径）、
+>    `lceda_session {"action":"open"}`（必须返回 session id）、
+>    `lceda_run {"code":"return Object.keys(eda).filter(k=>k.startsWith('pcb_')).length"}`
+>    （PCB API 面必须返回正整数）。
+> 7. 到这一步就停，别动设计。`lceda_check` 和 `lceda_export` 是只读的；`lceda_run`、
+>    `lceda_pour`、`lceda_sch_wire`、`lceda_sch_netlist`、`lceda_route` 会改文件——先告诉我你
+>    准备跑什么，等我确认。
+>
+> 任何一步失败，原样贴报错，不要自己猜着改：所有失败信息都带你下一步该干什么和
+> README 锚点。最常见原因是残留会话——`lceda_session {"action":"clean"}` 后重试一次。
+
 ## 配置
 
 按工程设置的值**没有默认值**：`projectPath`、`pcbUuid`、`schUuid`，自动布线还需
@@ -57,8 +91,9 @@ dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.gi
 | `routeTimeoutMs` | `900000` | Freerouting 预算 |
 | `allowGuiConcurrent` | `false` | 允许 GUI 会话存在时写操作（危险） |
 
-文档 id 就是 `eda.dmt_EditorControl.openDocument` 要的 id，在编辑器里对自己的工程读一次
-（无头 CLI 无法凭空生成）。配置非法会在加载时报出字段路径，例如
+文档 id 就是 `eda.dmt_EditorControl.openDocument` 要的 id，无头 CLI 无法凭空生成——但
+`.eprj3` 是纯 JSON，不用开 GUI 也能读：文件里 `profile.pcbs` / `profile.sheets` 的键名就是
+这两个 id（有多块板 / 多页时取第一个）。配置非法会在加载时报出字段路径，例如
 `$.invokeTimeoutMs expected number but got nope`。
 
 ## 5 分钟首次跑通

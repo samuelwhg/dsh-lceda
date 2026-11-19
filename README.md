@@ -29,6 +29,43 @@ dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.gi
 Restart that profile. The bundle's `cordis.patch.yml` inserts the `dsh-lceda` row, so
 the eight `lceda_*` tools and the `lceda-dev` skill appear without hand-editing config.
 
+## Let an AI install it
+
+Hand this block to an AI agent with shell access on the machine where DSH runs — it
+installs, configures and smoke-tests the plugin without you hunting for document ids:
+
+> Install the `dsh-lceda` plugin and get it working on my project.
+>
+> 1. Check prerequisites: `node -v` (>= 22.19), `dsh --version` (>= 0.2.2), and that
+>    LCEDA Pro is installed on this machine. Ask me which DSH profile to use.
+> 2. Install into that profile — from git:
+>    `dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.git`
+>    (from a local checkout: `add /path/to/dsh-lceda`). Then confirm the bundle inserted
+>    an `id: dsh-lceda` row.
+> 3. Ask me for the `.eprj3` project path. Leave `exePath` and `spawnCwd` empty — they
+>    are auto-detected (`Program Files{, (x86)}\lceda-pro` on every drive). Only set
+>    `exePath` if I say LCEDA Pro lives somewhere unusual.
+> 4. Derive the document ids yourself instead of asking me: `.eprj3` is plain JSON, so
+>    run
+>    `node -e "const d=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'));const p=d.profile;console.log(Object.keys(p.pcbs)[0],Object.keys(p.sheets)[0])" "<path>.eprj3"`
+>    — first value is `pcbUuid`, second `schUuid`. (First key = first board / first
+>    schematic page; when there are several, tell me which one you picked.)
+> 5. Write those into `<profile>/cordis.patch.yml` under the existing `id: dsh-lceda`
+>    row as `projectPath`, `pcbUuid`, `schUuid` — merge into that row, never add a
+>    second one. Add `freeroutingJar` + `sesDirWin` only if I ask for autorouting.
+> 6. Restart the profile and verify, reporting each result verbatim:
+>    `lceda_session {"action":"list"}` (proves the exe resolves; on failure the error
+>    lists every path it probed), `lceda_session {"action":"open"}` (must return a
+>    session id), `lceda_run {"code":"return Object.keys(eda).filter(k=>k.startsWith('pcb_')).length"}`
+>    (must return a positive count for the PCB API surface).
+> 7. Stop before touching the design. `lceda_check` and `lceda_export` are read-only;
+>    `lceda_run`, `lceda_pour`, `lceda_sch_wire`, `lceda_sch_netlist` and `lceda_route`
+>    can change files — tell me what you would run first and wait for my go-ahead.
+>
+> If anything fails, quote the exact error instead of improvising: every failure message
+> names its next step and the README anchor that explains it. Stale sessions are the
+> usual cause — `lceda_session {"action":"clean"}` then retry once.
+
 ## Configuration
 
 Per-project values ship with **no defaults**: set `projectPath`, `pcbUuid`,
@@ -63,10 +100,11 @@ bundle inserted:
 | `routeTimeoutMs` | `900000` | Freerouting budget |
 | `allowGuiConcurrent` | `false` | allow writes while a user GUI session is open (dangerous) |
 
-Document ids are the ids `eda.dmt_EditorControl.openDocument` expects; read them in
-the editor for your project once (the headless CLI cannot invent them). Invalid
-config fails at load with the field path, e.g.
-`$.invokeTimeoutMs expected number but got nope`.
+Document ids are the ids `eda.dmt_EditorControl.openDocument` expects; the headless
+CLI cannot invent them. A `.eprj3` is plain JSON, so you can read them without the
+GUI — the keys of `profile.pcbs` / `profile.sheets` in that file *are* those ids
+(first key wins when there are several). Invalid config fails at load with the field
+path, e.g. `$.invokeTimeoutMs expected number but got nope`.
 
 ## Quickstart
 
