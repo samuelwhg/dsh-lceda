@@ -233,19 +233,6 @@ return { imported, tracks: lines.length };`
     async execute(args) {
       const mode = args.mode ?? 'all'
       const out: Record<string, Json> = {}
-      if (mode === 'drc' || mode === 'all') {
-        const code = `${RETRY_GETALL}
-await eda.dmt_EditorControl.openDocument(${JSON.stringify(cfg.pcbUuid)});
-await eda.dmt_EditorControl.waitForDocumentReady(${JSON.stringify(cfg.pcbUuid)}, 30000);
-let ran = false; let result = null; let note = '';
-try { result = await eda.pcb_Drc.getDrcResult(); } catch (e) { result = null; }
-if (!result) {
-  try { await Promise.race([eda.pcb_Drc.check(true, false, false), new Promise((_, rej) => setTimeout(() => rej(new Error('drc-check-timeout')), 20000))]); ran = true; } catch (e) { ran = false; }
-  try { result = await eda.pcb_Drc.getDrcResult(); } catch (e) { note = 'headless DRC unavailable (canvas subscription): ' + String(e && e.message || e); }
-}
-return { ran, result, note };`
-        out.drc = (await call(cfg, args.session, code, undefined, 180000)) as Json
-      }
       if (mode === 'nets' || mode === 'all') {
         const code = `${RETRY_GETALL}
 await eda.dmt_EditorControl.openDocument(${JSON.stringify(cfg.pcbUuid)});
@@ -282,6 +269,19 @@ const vs = vias.map((v) => ({ id: v.primitiveId, net: v.net || '', x: v.x, y: v.
 return { pads, segs, vias: vs };`
         const g = (await call(cfg, args.session, code, undefined, 180000)) as unknown as { pads: ConnPad[]; segs: ConnSeg[]; vias: ConnVia[] }
         out.conn = { isolated: connectivity(g.pads, g.segs, g.vias), pads: g.pads.length, segs: g.segs.length, vias: g.vias.length } as unknown as Json
+      }
+      if (mode === 'drc' || mode === 'all') {
+        const code = `${RETRY_GETALL}
+await eda.dmt_EditorControl.openDocument(${JSON.stringify(cfg.pcbUuid)});
+await eda.dmt_EditorControl.waitForDocumentReady(${JSON.stringify(cfg.pcbUuid)}, 30000);
+let ran = false; let result = null; let note = '';
+try { result = await eda.pcb_Drc.getDrcResult(); } catch (e) { result = null; }
+if (!result) {
+  try { await Promise.race([eda.pcb_Drc.check(true, false, false), new Promise((_, rej) => setTimeout(() => rej(new Error('drc-check-timeout')), 20000))]); ran = true; } catch (e) { ran = false; }
+  try { result = await eda.pcb_Drc.getDrcResult(); } catch (e) { note = 'headless DRC unavailable (canvas subscription): ' + String(e && e.message || e); }
+}
+return { ran, result, note };`
+        out.drc = (await call(cfg, args.session, code, undefined, 180000)) as Json
       }
       return out
     },
