@@ -16,8 +16,8 @@ export interface Config {
 }
 
 export const Config: Schema<Config> = Schema.object({
-  exePath: Schema.string().default('/mnt/c/Program Files/lceda-pro/lceda-pro.exe').description('LCEDA Pro CLI executable (WSL path to the Windows exe; default is the standard all-users install location).'),
-  spawnCwd: Schema.string().default('/mnt/c').description('cwd for spawning the Windows exe (drive root avoids UNC cwd issues).'),
+  exePath: Schema.string().default('').description('LCEDA Pro CLI executable as a WSL path to the Windows exe. Empty: auto-detected under /mnt/<drive>/Program Files/lceda-pro/ on every mounted drive.'),
+  spawnCwd: Schema.string().default('').description('cwd for spawning the Windows exe. Empty: the drive root of exePath (a drive root avoids UNC cwd issues).'),
   projectPath: Schema.string().default('').description('Windows-side .eprj3 project path opened headless. Required: set per project.'),
   pcbUuid: Schema.string().default('').description('PCB document uuid for openDocument prelude. Required: set per project.'),
   schUuid: Schema.string().default('').description('Schematic page uuid for openDocument prelude. Required: set per project.'),

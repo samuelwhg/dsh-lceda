@@ -129,7 +129,7 @@ describe('plugin wiring', () => {
   it('closes the sessions it opened on dispose', async () => {
     spawnMock.mockImplementation(() => cliChild({ ok: true, value: { sessionId: 's1' } }))
     const { ctx, tools, disposers } = fakeCtx()
-    apply(ctx as never, Config({ projectPath: 'D:\\work\\board.eprj3' } as never))
+    apply(ctx as never, Config({ projectPath: 'D:\\work\\board.eprj3', exePath: process.execPath } as never))
     expect(await tools.lceda_session.execute({ action: 'open' })).toEqual({ sessionId: 's1' })
 
     spawnMock.mockClear()

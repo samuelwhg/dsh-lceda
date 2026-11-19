@@ -18,7 +18,7 @@ description: 嘉立创 EDA Pro（LCEDA）headless 开发流程与红线。当用
 
 ## API 面（只保证这些）
 工具只调用已验证的 `eda.*`：`dmt_EditorControl.openDocument|waitForDocumentReady`、`pcb_Document.save|clearRouting|importAutoRouteSesFile`、`sch_Document.save`、`pcb_PrimitiveComponent/Line/Via/Pour.getAll`、`pcb_PrimitiveComponent.getAllPinsByPrimitiveId`、`sch_PrimitiveWire.create`、`pcb_Drc.check|getDrcResult|getCurrentRuleConfiguration|overwriteCurrentRuleConfiguration`、`sch_Netlist.getNetlist`、`pcb_ManufactureData.getDsnFile`、`sys_FileSystem.readFileFromFileSystem`。
-表外 API 不保证存在：先 `Object.keys(eda)` 探测再用；报 `is not a function` 就是该 LCEDA 版本改了接口，handoff 或回报版本，别换名字硬猜。
+表外 API 不保证存在：先用 `lceda-pro doc api [--class-name <类>]` 查当前构建的真实接口（会话内可 `Object.keys(eda)`）；报 `is not a function` 就是该版本改了接口，handoff 或回报版本，别换名字硬猜。上表已在 LCEDA 4.1.99.7adca3d2 核对。
 
 ## 红线
 1. **用户 GUI 开着时不做写操作**（.eprj3 双向同步会互相覆盖）；工具默认拒写，除非配置 allowGuiConcurrent。

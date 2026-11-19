@@ -39,7 +39,6 @@ bundle inserted:
 - id: dsh-lceda
   name: dsh-lceda
   config:
-    exePath: /mnt/c/Program Files/lceda-pro/lceda-pro.exe  # WSL path to lceda-pro.exe
     projectPath: D:\work\board.eprj3                       # Windows path, opened headless
     pcbUuid: <pcb document id>
     schUuid: <schematic page id>
@@ -49,8 +48,8 @@ bundle inserted:
 
 | key | default | meaning |
 | --- | --- | --- |
-| `exePath` | `/mnt/c/Program Files/lceda-pro/lceda-pro.exe` | LCEDA Pro CLI executable (WSL path to the Windows exe) |
-| `spawnCwd` | `/mnt/c` | cwd for the Windows exe (drive root avoids UNC cwd issues) |
+| `exePath` | *(empty)* | LCEDA Pro CLI executable as a WSL path. Empty: auto-detected as `/mnt/<drive>/Program Files/lceda-pro/lceda-pro.exe` on every mounted drive, so C:/D:/E: installs all work |
+| `spawnCwd` | *(empty)* | cwd for the Windows exe; empty = the drive root of `exePath` (a drive root avoids UNC cwd issues) |
 | `projectPath` | *(empty)* | Windows `.eprj3` path opened headless |
 | `pcbUuid` | *(empty)* | PCB document id for the `openDocument` prelude |
 | `schUuid` | *(empty)* | schematic page id for the `openDocument` prelude |
@@ -69,7 +68,7 @@ config fails at load with the field path, e.g.
 
 ## Quickstart
 
-1. Set `exePath`, `projectPath`, `pcbUuid` as above and restart the profile.
+1. Set `projectPath`, `pcbUuid` as above and restart the profile (leave `exePath` empty unless LCEDA Pro is installed somewhere unusual — `lceda_session list` names every path it searched when it cannot find the exe).
 2. `lceda_session` `{ "action": "list" }` — confirms the CLI handshake, no session opened yet.
 3. `lceda_session` `{ "action": "open" }` — opens the project headless, returns `sessionId`.
 4. `lceda_run` `{ "code": "return Object.keys(eda).filter(k => k.startsWith('pcb_'))" }` — the PCB API surface of your installed editor build.
@@ -101,7 +100,11 @@ pour solid copper on inner signal layers, always re-check all pad nets after
 
 LCEDA Pro publishes no complete plugin SDK, so this plugin drives the editor's in-page
 `eda` object from JavaScript and only relies on the API families below — the ones
-verified against a real LCEDA Pro build:
+verified against **LCEDA Pro 4.1.99.7adca3d2** (every call below was checked to exist in
+that build). The editor documents its own surface, which beats any table here:
+`lceda-pro doc api` lists the classes, `lceda-pro doc api --class-name PCB_Drc` the
+methods of one, and `lceda-pro --search <query>` fuzzy-finds a command. See
+<https://prodocs.lceda.cn/storage/texts/api/guide/cli-for-ai.md>. This table:
 
 | family | calls used |
 | --- | --- |
@@ -150,7 +153,8 @@ sessions it owns.
 
 | symptom | next step |
 | --- | --- |
-| `cannot start "<exePath>" ... ENOENT` | install LCEDA Pro and point `exePath` at `lceda-pro.exe` as a WSL path |
+| `LCEDA Pro not found: install it, or set config exePath ...` | install LCEDA Pro, or set `exePath` to `lceda-pro.exe`'s WSL path; the message lists every `/mnt/*/Program Files` it probed |
+| `cannot start "<exePath>" ... ENOENT` | the configured path does not exist — fix `exePath`, or clear it to fall back to auto-detection |
 | `no project path` | pass a `.eprj3` path to `lceda_session open` or set `projectPath` |
 | `config pcbUuid is not set` / `schUuid` | set the document id for that board/page (see Configuration) |
 | `user GUI session open (...)` | close the GUI, or set `allowGuiConcurrent: true` knowing `.eprj3` sync can overwrite |

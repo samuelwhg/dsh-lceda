@@ -34,7 +34,6 @@ dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.gi
 - id: dsh-lceda
   name: dsh-lceda
   config:
-    exePath: /mnt/c/Program Files/lceda-pro/lceda-pro.exe  # lceda-pro.exe 的 WSL 路径
     projectPath: D:\work\board.eprj3                       # Windows 路径，无头打开
     pcbUuid: <PCB 文档 id>
     schUuid: <原理图页 id>
@@ -44,8 +43,8 @@ dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.gi
 
 | 键 | 默认值 | 含义 |
 | --- | --- | --- |
-| `exePath` | `/mnt/c/Program Files/lceda-pro/lceda-pro.exe` | LCEDA 专业版 CLI 可执行文件（Windows exe 的 WSL 路径） |
-| `spawnCwd` | `/mnt/c` | 启动 Windows exe 的 cwd（盘根可避开 UNC cwd 问题） |
+| `exePath` | *（空）* | LCEDA 专业版 CLI 的 WSL 路径。留空即自动探测：每个挂载盘下的 `/mnt/<盘>/Program Files/lceda-pro/lceda-pro.exe`，装在 C:/D:/E: 都能找到 |
+| `spawnCwd` | *（空）* | 启动 Windows exe 的 cwd；留空取 `exePath` 所在盘根（盘根可避开 UNC cwd 问题） |
 | `projectPath` | *（空）* | 无头打开的 Windows `.eprj3` 路径 |
 | `pcbUuid` | *（空）* | `openDocument` 前奏用的 PCB 文档 id |
 | `schUuid` | *（空）* | `openDocument` 前奏用的原理图页 id |
@@ -63,7 +62,7 @@ dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.gi
 
 ## 5 分钟首次跑通
 
-1. 按上面设好 `exePath`、`projectPath`、`pcbUuid`，重启 profile。
+1. 按上面设好 `projectPath`、`pcbUuid`，重启 profile（`exePath` 留空即可，除非 LCEDA 装在非常规位置——找不到 exe 时 `lceda_session list` 会把搜过的路径全列出来）。
 2. `lceda_session` `{ "action": "list" }` —— 确认 CLI 握手，此时还没开会话。
 3. `lceda_session` `{ "action": "open" }` —— 无头打开工程，返回 `sessionId`。
 4. `lceda_run` `{ "code": "return Object.keys(eda).filter(k => k.startsWith('pcb_'))" }` —— 看你装的编辑器版本的 PCB API 面。
@@ -92,7 +91,10 @@ dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.gi
 ## API 面与能力范围
 
 LCEDA Pro 没有完整公开插件 SDK，本插件是通过 JavaScript 驱动编辑器内的 `eda` 对象，
-只保证下列 API 家族可用——这些是在真实 LCEDA Pro 构建上验证过的：
+只保证下列 API 家族可用——已在 **LCEDA Pro 4.1.99.7adca3d2** 上逐个核对存在。编辑器自带
+权威查询，比这张表更准：`lceda-pro doc api` 列类、`lceda-pro doc api --class-name PCB_Drc`
+列某类方法、`lceda-pro --search <词>` 模糊找命令，见
+<https://prodocs.lceda.cn/storage/texts/api/guide/cli-for-ai.md>。本表只列插件实际用到的：
 
 | 家族 | 用到的调用 |
 | --- | --- |
@@ -135,7 +137,8 @@ dsh plugin --profile <profile> remove dsh-lceda                                 
 
 | 现象 | 下一步 |
 | --- | --- |
-| `cannot start "<exePath>" ... ENOENT` | 装 LCEDA 专业版，把 `exePath` 指到 `lceda-pro.exe` 的 WSL 路径 |
+| `LCEDA Pro not found: install it, or set config exePath ...` | 装 LCEDA 专业版，或把 `exePath` 指到 `lceda-pro.exe` 的 WSL 路径；报错里会列出探测过的每个 `/mnt/*/Program Files` |
+| `cannot start "<exePath>" ... ENOENT` | 配置的路径不存在——改 `exePath`，或清空它回退自动探测 |
 | `no project path` | 给 `lceda_session open` 传 `.eprj3` 路径，或设 `projectPath` |
 | `config pcbUuid is not set` / `schUuid` | 为对应板/页设置文档 id（见「配置」） |
 | `user GUI session open (...)` | 关 GUI，或明知 `.eprj3` 同步会覆盖再设 `allowGuiConcurrent: true` |

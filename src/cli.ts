@@ -1,4 +1,6 @@
 import { spawn } from 'node:child_process'
+import { access, readdir } from 'node:fs/promises'
+import { join } from 'node:path'
 import type { Config } from './config'
 
 export interface Envelope {
@@ -8,10 +10,63 @@ export interface Envelope {
   raw: string
 }
 
+/** Relative install locations of the CLI inside a Windows drive root. */
+const EXE_TAIL = ['Program Files/lceda-pro/lceda-pro.exe', 'Program Files (x86)/lceda-pro/lceda-pro.exe']
+
+/** First path that exists; `tried` keeps the full miss list for the error text. */
+export async function firstExisting(paths: string[]): Promise<{ found?: string; tried: string[] }> {
+  for (const p of paths) {
+    try {
+      await access(p)
+      return { found: p, tried: paths }
+    } catch { /* keep looking */ }
+  }
+  return { tried: paths }
+}
+
+let autoExe: string | undefined
+
+async function detectExe(): Promise<{ found?: string; tried: string[] }> {
+  if (autoExe && (await firstExisting([autoExe])).found) return { found: autoExe, tried: [autoExe] }
+  const mounts = await readdir('/mnt').catch(() => [] as string[])
+  const drives = mounts.filter((d) => /^[a-z]$/i.test(d)).sort().map((d) => `/mnt/${d}`)
+  const hit = await firstExisting(drives.flatMap((r) => EXE_TAIL.map((t) => join(r, t))))
+  if (hit.found) autoExe = hit.found
+  return hit
+}
+
+/** exePath if it exists, else autodetect on any mounted Windows drive (D:, E:, …). */
+export async function resolveExe(cfg: Config): Promise<string> {
+  if (cfg.exePath) {
+    if ((await firstExisting([cfg.exePath])).found) return cfg.exePath
+    const auto = await detectExe()
+    throw new Error(
+      `cannot find "${cfg.exePath}" (config exePath)` +
+        (auto.found ? `; lceda-pro.exe was auto-detected at ${auto.found}` : `; not found in ${auto.tried.join(', ')}`) +
+        ' (see README.md#troubleshooting)',
+    )
+  }
+  const auto = await detectExe()
+  if (!auto.found) {
+    throw new Error(
+      `LCEDA Pro not found: install it, or set config exePath to lceda-pro.exe as a WSL path` +
+        ` (looked in ${auto.tried.join(', ')}; see README.md#troubleshooting)`,
+    )
+  }
+  return auto.found
+}
+
+/** Drive root of a WSL path to a Windows exe: a drive root is a valid cwd for it. */
+function driveRoot(p: string): string {
+  const m = /^\/mnt\/([a-z])\//i.exec(p)
+  return m ? `/mnt/${m[1]}` : '/'
+}
+
 /** Spawn the Windows CLI and parse its single JSON envelope from stdout. */
-export function runCli(cfg: Config, args: string[], stdin?: string, timeoutMs = 120000): Promise<Envelope> {
+export async function runCli(cfg: Config, args: string[], stdin?: string, timeoutMs = 120000): Promise<Envelope> {
+  const exe = await resolveExe(cfg)
   return new Promise((resolve, reject) => {
-    const child = spawn(cfg.exePath, args, { cwd: cfg.spawnCwd })
+    const child = spawn(exe, args, { cwd: cfg.spawnCwd || driveRoot(exe) })
     let out = ''
     let err = ''
     const timer = setTimeout(() => {
@@ -22,7 +77,7 @@ export function runCli(cfg: Config, args: string[], stdin?: string, timeoutMs = 
     child.stderr.on('data', (d) => { err += d.toString() })
     child.on('error', (e) => {
       clearTimeout(timer)
-      reject(new Error(`cannot start "${cfg.exePath}" (${e.message}): set config exePath to your LCEDA Pro executable (see README.md#troubleshooting)`))
+      reject(new Error(`cannot start "${exe}" (${e.message}): check permissions on the install dir, or set config exePath (see README.md#troubleshooting)`))
     })
     child.on('close', () => {
       clearTimeout(timer)
