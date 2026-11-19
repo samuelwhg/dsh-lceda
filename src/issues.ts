@@ -155,7 +155,7 @@ export function draft(repo: string, rec: IssueRecord, plugin: string): { title: 
     '**Environment**',
     `- platform: \`${rec.env.platform}\``,
     `- node: \`${rec.env.node}\``,
-    ...(rec.resolution ? ['', '**Fix that worked**', rec.resolution.note] : []),
+    ...(rec.resolution?.note?.trim() ? ['', '**Fix that worked**', rec.resolution.note.trim()] : []),
     '',
     '<!-- filed by lceda_report; paths and tokens were redacted before writing this body -->',
   ].join('\n')
@@ -226,6 +226,23 @@ export async function searchIssues(
   }
 }
 
+/**
+ * Recent issues, read straight from the API. GitHub's search index lags a few seconds behind a
+ * create, so a failure filed moments ago is invisible to `--search`; listing is not.
+ */
+export async function recentIssues(
+  repo: string,
+  exec: (cmd: string, args: string[]) => Promise<string> = run,
+  limit = 50,
+): Promise<RemoteIssue[]> {
+  const out = await exec('gh', ['issue', 'list', '--repo', repo, '--state', 'all', '--limit', String(limit), '--json', 'number,title,url,state,body'])
+  try {
+    return JSON.parse(out) as RemoteIssue[]
+  } catch {
+    return []
+  }
+}
+
 /** Browser search for the same query, used when `gh` is not installed. */
 export function searchUrl(repo: string, rec: IssueRecord): string {
   return `https://github.com/${repo}/issues?q=${encodeURIComponent(issueQuery(rec) || rec.tool)}`
@@ -272,25 +289,28 @@ export async function submitIssue(
   const { title, text, prefilled } = draft(repo, rec, plugin)
   const base = { filed: false, issueUrl: '', duplicateOf: '', commented: false, prefilled, hint: '' }
 
-  let dup: RemoteIssue | undefined
-  try {
-    dup = sameFailure(await searchIssues(repo, rec, exec), rec)
-  } catch (e) {
-    if (!missingTool(e)) throw e // a broken gh (auth, network) must surface, not be swallowed
+  let dup = rec.issueUrl
+  if (!dup) {
+    try {
+      dup = sameFailure(await recentIssues(repo, exec), rec)?.url ?? sameFailure(await searchIssues(repo, rec, exec), rec)?.url ?? ''
+    } catch (e) {
+      if (!missingTool(e)) throw e // a broken gh (auth, network) must surface, not be swallowed
+    }
   }
 
   if (dup) {
     let commented = false
-    if (rec.resolution) {
+    const note = rec.resolution?.note?.trim()
+    if (note) {
       try {
-        await exec('gh', ['issue', 'comment', dup.url, '--body', `Same failure here. Fix that worked:\n\n${rec.resolution.note}`])
+        await exec('gh', ['issue', 'comment', dup, '--body', `Same failure here. Fix that worked:\n\n${note}`])
         commented = true
       } catch (e) {
         if (!missingTool(e)) throw e
       }
     }
-    saveIssue(dir, { ...rec, issueUrl: dup.url })
-    return { ...base, issueUrl: dup.url, duplicateOf: dup.url, commented }
+    saveIssue(dir, { ...rec, issueUrl: dup })
+    return { ...base, issueUrl: dup, duplicateOf: dup, commented }
   }
 
   try {

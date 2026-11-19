@@ -142,9 +142,73 @@ describe('the borrow-then-report loop', () => {
     expect(loadIssue(dir, rec.id).issueUrl).toBe('https://github.com/o/r/issues/7')
   })
 
+  it('folds into the issue this record already points at, without touching the tracker', async () => {
+    const dir = issuesDir(fs.mkdtempSync(path.join(os.tmpdir(), 'lceda-known-')))
+    const filed = recordFailure({ dir, plugin: rec.plugin, tool: rec.tool, input: rec.input, error: rec.error })!
+    const known = { ...filed, issueUrl: 'https://github.com/o/r/issues/3', resolution: { at: '2026-11-19T02:00:00.000Z', note: 'clean first' } }
+    const calls: string[][] = []
+    const exec = (cmd: string, args: string[]) => {
+      calls.push([cmd, ...args])
+      return Promise.resolve('')
+    }
+    const sub = await submitIssue(dir, 'o/r', known, rec.plugin, exec)
+    expect(sub.duplicateOf).toBe('https://github.com/o/r/issues/3')
+    expect(sub.commented).toBe(true)
+    expect(calls.every((c) => c.includes('comment'))).toBe(true) // no list, no create
+  })
+
+  it('still finds an issue the search index has not caught up with yet', async () => {
+    const dir = issuesDir(fs.mkdtempSync(path.join(os.tmpdir(), 'lceda-lag-')))
+    recordFailure({ dir, plugin: rec.plugin, tool: rec.tool, input: rec.input, error: rec.error })
+    const recent = JSON.stringify([
+      { number: 9, title: 'lceda_check: drc failed: session crashed', url: 'https://github.com/o/r/issues/9', state: 'OPEN', body: '' },
+    ])
+    const calls: string[][] = []
+    const exec = (cmd: string, args: string[]) => {
+      calls.push([cmd, ...args])
+      const searched = args.includes('--search')
+      return Promise.resolve(args[0] === 'issue' && args[1] === 'list' ? (searched ? '[]' : recent) : '')
+    }
+    const sub = await submitIssue(dir, 'o/r', { ...rec, resolution: undefined }, rec.plugin, exec)
+    expect(sub.duplicateOf).toBe('https://github.com/o/r/issues/9')
+    expect(sub.filed).toBe(false)
+    expect(calls.some((c) => c.includes('create'))).toBe(false)
+  })
+
   it('carries the fix in the body of a brand-new issue', () => {
     const { text } = draft('o/r', { ...rec, resolution: { at: '2026-11-19T02:00:00.000Z', note: 'clean first' } }, rec.plugin)
     expect(text).toContain('**Fix that worked**')
     expect(text).toContain('clean first')
+  })
+})
+
+describe('a fix worth publishing', () => {
+  const rec = {
+    id: '20261119T030000Z-lceda_check',
+    at: '2026-11-19T03:00:00.000Z',
+    plugin: 'dsh-lceda@0.1.0',
+    tool: 'lceda_check',
+    error: 'drc failed: session crashed',
+    input: '{}',
+    env: { platform: 'linux', node: 'v22.0.0' },
+    issueUrl: 'https://github.com/o/r/issues/4',
+    resolution: { at: '2026-11-19T04:00:00.000Z', note: '   ' },
+  }
+
+  it('is left out of the body when the note is blank', () => {
+    expect(draft('o/r', rec, rec.plugin).text).not.toContain('**Fix that worked**')
+  })
+
+  it('is never posted as an empty comment', async () => {
+    const dir = issuesDir(fs.mkdtempSync(path.join(os.tmpdir(), 'lceda-blank-')))
+    fs.mkdirSync(dir, { recursive: true })
+    const calls: string[][] = []
+    const exec = (cmd: string, args: string[]) => {
+      calls.push([cmd, ...args])
+      return Promise.resolve('')
+    }
+    const sub = await submitIssue(dir, 'o/r', rec, rec.plugin, exec)
+    expect(sub.commented).toBe(false)
+    expect(calls.length).toBe(0)
   })
 })
