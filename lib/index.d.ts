@@ -12,6 +12,7 @@ interface Config {
   workDir: string;
   invokeTimeoutMs: number;
   routeTimeoutMs: number;
+  reportRepo: string;
   allowGuiConcurrent: boolean;
 }
 declare const Config: Schema<Config>;

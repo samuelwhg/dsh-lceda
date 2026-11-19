@@ -27,7 +27,8 @@ describe('plugin wiring against real cordis', () => {
 
     const fork = ctx.plugin({ inject, apply } as never, Config({} as never) as never)
     await new Promise((r) => setTimeout(r, 30))
-    expect(toolNames).toHaveLength(8)
+    expect(toolNames).toHaveLength(9)
+    expect(toolNames).toContain('lceda_report')
     expect(registered.map((s) => s.name)).toEqual(['lceda-dev'])
     expect(registered[0].content).toContain('勿整文件覆盖')
 

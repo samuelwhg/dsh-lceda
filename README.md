@@ -96,6 +96,7 @@ under the same `id` the bundle inserted:
 | `workDir` | `.dsh-lceda` | Local dir for DSN/SES/export artifacts, relative to the session workspace |
 | `invokeTimeoutMs` | `120000` | default per-invoke budget |
 | `routeTimeoutMs` | `900000` | Freerouting budget |
+| `reportRepo` | `samuelwhg/dsh-lceda` | GitHub `owner/name` that `lceda_report submit` files into; empty disables submission |
 | `allowGuiConcurrent` | `false` | allow writes while a user GUI session is open (dangerous) |
 
 Document ids are the ids `eda.dmt_EditorControl.openDocument` expects; the headless
@@ -128,6 +129,7 @@ return `null`).
 | `lceda_pour` | rebuild or set connect mode of copper pours |
 | `lceda_sch_wire` | draw schematic wires onto exact pin hotspots |
 | `lceda_sch_netlist` | compile the schematic netlist |
+| `lceda_report` | `list` recorded failures, `submit` one upstream via your own `gh`, `solve` attach the fix |
 
 The bundled `lceda-dev` skill carries the workflow order and the red lines (do not
 write while the GUI holds the project, never overwrite `PCB1.epcb2` wholesale, never
@@ -171,8 +173,28 @@ Declared capabilities: `tools:register`, `fs:read`, `fs:write`, `subprocess`.
 - Modifies your design: `lceda_run`, `lceda_route`, `lceda_pour`, `lceda_sch_wire`
   save documents. Keep the project in version control.
 - No network egress/ingress, no credentials, no prompt modification: `dsh.labels`
-  is intentionally empty.
+  is intentionally empty. `lceda_report submit` shells out to *your* authenticated
+  `gh`; the plugin never holds a GitHub token.
 - To revoke: remove the plugin (below) or disable its row in the profile.
+
+## Reporting problems
+
+Unexpected failures are recorded automatically, nothing is sent on its own:
+
+- Every `lceda_*` tool wraps its work in a failure recorder. When one fails for a
+  reason other than your configuration (errors that name a fix, e.g. a missing
+  `projectPath`, are not noise-filed), a record lands in `<workDir>/issues/<id>.json`
+  and the tool error names the id.
+- Before a record is written, the text is redacted: your home dir becomes `~`,
+  absolute paths become `<path>`, `ghp_*` / `github_pat_*` tokens become `<token>`.
+  Arguments are kept but truncated and redacted the same way.
+- `lceda_report { "action": "list" }` shows the ledger; `{ "action": "submit", "id": ... }`
+  files the newest (or that) record as a GitHub issue against `reportRepo` using the
+  `gh` you are already logged in with; `{ "action": "solve", "id": ..., "note": "..." }`
+  stores what fixed it and comments that on the issue when one exists.
+
+A good agent habit: after the same failure shows up twice, propose `submit`; after
+the fix works, call `solve` so the next person inherits the answer.
 
 ## Upgrade, rollback, uninstall
 

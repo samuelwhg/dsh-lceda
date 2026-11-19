@@ -86,6 +86,7 @@ dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.gi
 | `workDir` | `.dsh-lceda` | DSN/SES/导出产物的本地目录，相对会话工作区 |
 | `invokeTimeoutMs` | `120000` | 单次 invoke 默认预算 |
 | `routeTimeoutMs` | `900000` | Freerouting 预算 |
+| `reportRepo` | `samuelwhg/dsh-lceda` | `lceda_report submit` 上报到的 GitHub `owner/name`；留空即关闭上报 |
 | `allowGuiConcurrent` | `false` | 允许 GUI 会话存在时写操作（危险） |
 
 文档 id 就是 `eda.dmt_EditorControl.openDocument` 要的 id，无头 CLI 无法凭空生成——但
@@ -116,6 +117,7 @@ dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.gi
 | `lceda_pour` | 重建铺铜或设置连接方式 |
 | `lceda_sch_wire` | 在精确引脚热点上画原理图导线 |
 | `lceda_sch_netlist` | 编译原理图网表 |
+| `lceda_report` | `list` 看已记录故障、`submit` 用你自己的 `gh` 上报、`solve` 记下解决办法 |
 
 出厂 `lceda-dev` skill 带工作流顺序与红线（GUI 占用工程时不做写操作、勿整文件覆盖
 `PCB1.epcb2`、内层有信号时不铺实心铜、`importChanges` 后必核对全部焊盘网表、
@@ -152,8 +154,25 @@ LCEDA Pro 升级可能改名或移除这些调用；工具开始报 `... is not 
   argv 数组（不经 shell）启动，带超时，超时即杀。
 - 会改设计：`lceda_run`、`lceda_route`、`lceda_pour`、`lceda_sch_wire` 都会保存文档。
   工程请放版本管理。
-- 无网络收发、不读凭据、不改 prompt：`dsh.labels` 故意为空。
+- 无网络收发、不读凭据、不改 prompt：`dsh.labels` 故意为空。`lceda_report submit`
+  调的是**你自己**已登录的 `gh`，插件从不持有 GitHub token。
 - 收回权限：卸载插件，或在 profile 里禁用该行。
+
+## 问题上报
+
+意外故障会自动记录在本地，不会自己外发：
+
+- 每个 `lceda_*` 工具都套了故障记录器。失败原因不属于配置问题（自带修法的报错，例如
+  缺 `projectPath`，不会被记成噪音）时，会在 `<workDir>/issues/<id>.json` 落一条记录，
+  工具报错里同时给出这个 id。
+- 落盘前先脱敏：家目录变 `~`、绝对路径变 `<path>`、`ghp_*` / `github_pat_*` token 变
+  `<token>`；入参同样截断并脱敏。
+- `lceda_report { "action": "list" }` 看清单；`{ "action": "submit", "id": ... }` 把最新
+  （或指定）一条通过你已登录的 `gh` 提到 `reportRepo`；`{ "action": "solve", "id": ...,
+  "note": "..." }` 记下解决办法，已有 issue 时同时评论上去。
+
+给 agent 的习惯：同一故障出现两次就建议 `submit`；解决后用 `solve` 留下结论，下一个人
+就不用重踩。
 
 ## 升级、回滚、卸载
 

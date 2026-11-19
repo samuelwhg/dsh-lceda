@@ -12,6 +12,7 @@ export interface Config {
   workDir: string
   invokeTimeoutMs: number
   routeTimeoutMs: number
+  reportRepo: string
   allowGuiConcurrent: boolean
 }
 
@@ -27,5 +28,6 @@ export const Config: Schema<Config> = Schema.object({
   workDir: Schema.string().default('.dsh-lceda').description('Local dir for DSN/SES/export artifacts (relative paths resolve against the session workspace).'),
   invokeTimeoutMs: Schema.number().default(120000).description('Default invoke budget in ms.'),
   routeTimeoutMs: Schema.number().default(900000).description('Freerouting run budget in ms.'),
+  reportRepo: Schema.string().default('samuelwhg/dsh-lceda').description('GitHub "owner/name" that lceda_report submit files issues into; empty disables submission. Failures are always recorded locally under <workDir>/issues.'),
   allowGuiConcurrent: Schema.boolean().default(false).description('Allow write operations while a user GUI session is open (dangerous: two-way .eprj3 sync can overwrite).'),
 })

@@ -1,13 +1,16 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import type { DefineToolOptions, ParameterSchemaSpec, ToolDefinition, ValueSchemaSpec } from '@deepseek-ai/dsh-tools'
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
+import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { Config } from './config'
 import type { Config as ConfigShape } from './config'
 import { closeSession, guardGui, invoke, listSessions, openHeadless, readyPrelude, RETRY_GETALL } from './cli'
 import { b64ToBuffer, connectivity, diffNets, normalizeCsv, parseProtel2 } from './decode'
+import { countable, issuesDir, listIssues, loadIssue, recordFailure, solveIssue, submitIssue } from './issues'
 import type { ConnPad, ConnSeg, ConnVia } from './decode'
 
 type Json = null | boolean | number | string | Json[] | { [k: string]: Json }
@@ -102,6 +105,44 @@ export function needUuid(cfg: ConfigShape, kind: 'pcb' | 'sch'): string {
   return u
 }
 
+const pkg = createRequire(import.meta.url)('../package.json') as { name: string; version: string }
+const PLUGIN = `${pkg.name}@${pkg.version}`
+
+/**
+ * Record an unexpected failure locally and tell the caller where it went.
+ * Errors that already name their fix (README anchor) are configuration problems, not bugs.
+ */
+function reportFailure(cfg: ConfigShape, tool: string, input: unknown, e: unknown): void {
+  if (!countable(e)) return
+  const rec = recordFailure({ dir: issuesDir(cfg.workDir), plugin: PLUGIN, tool, input, error: e })
+  if (rec && e instanceof Error) {
+    e.message +=
+      `\n[recorded as ${rec.id} in ${issuesDir(cfg.workDir)}; ` +
+      `lceda_report { "action": "submit", "id": "${rec.id}" } files it upstream, "solve" attaches the fix]`
+  }
+}
+
+/** defineTool plus failure capture: every tool's unexpected error lands in <workDir>/issues. */
+function guarded<const S extends ParameterSchemaSpec, const O extends ValueSchemaSpec>(
+  cfg: ConfigShape,
+  spec: DefineToolOptions<S, O>,
+): ToolDefinition {
+  // the generic round-trip blows up TS inference; the runtime shape is unchanged
+  const t = defineTool(spec as never) as ToolDefinition
+  const execute = t.execute.bind(t)
+  return {
+    ...t,
+    execute: async (args: unknown, exec: never) => {
+      try {
+        return await execute(args, exec)
+      } catch (e) {
+        reportFailure(cfg, t.name, args, e)
+        throw e
+      }
+    },
+  } as ToolDefinition
+}
+
 /** Subset of the host skill service this plugin registers into. */
 interface SkillsLike {
   register(skill: { name: string, description?: string, source?: string, content: string, resourceBase?: { kind: 'directory', path: string } }): () => void
@@ -121,6 +162,52 @@ export function apply(ctx: Context, config: ConfigShape): void {
     await Promise.all(owned.splice(0).map((id) => closeSession(cfg, id).catch(() => false)))
   }, 'dsh-lceda owned sessions')
 
+
+  ctx.tools.register(guarded(cfg, {
+    name: 'lceda_report',
+    description: 'Failure ledger: unexpected lceda_* errors are recorded under <workDir>/issues with paths and tokens redacted. `list` shows the records, `submit` files one as a GitHub issue through your own authenticated gh CLI (nothing is sent without it), `solve` attaches what fixed it and comments that on the issue.',
+    parameters: {
+      action: { type: 'string', required: true, description: 'list | submit | solve' },
+      id: { type: 'string', description: 'Record id from list; default is the newest record.' },
+      note: { type: 'string', description: 'solve: one or two sentences on what fixed it.' },
+    },
+    output: { schema: { type: 'object', additionalProperties: true }, render: jsonRender },
+    async execute(args): Promise<Record<string, Json>> {
+      const dir = issuesDir(cfg.workDir)
+      if (args.action === 'list') {
+        const issues = listIssues(dir)
+        return {
+          dir,
+          count: issues.length,
+          issues: issues.map((i) => ({
+            id: i.id,
+            at: i.at,
+            tool: i.tool,
+            error: i.error.split('\n')[0],
+            issueUrl: i.issueUrl ?? '',
+            resolution: i.resolution?.note ?? '',
+          })),
+        }
+      }
+      if (args.action !== 'submit' && args.action !== 'solve') {
+        throw new Error(`lceda_report action must be list, submit or solve, got "${args.action}" (see README.md#tools)`)
+      }
+      const id = args.id ?? listIssues(dir)[0]?.id
+      if (!id) throw new Error(`nothing recorded yet under ${dir}: no failure to ${args.action} (see README.md#reporting-problems)`)
+      if (args.action === 'submit') {
+        if (!cfg.reportRepo) {
+          throw new Error('config reportRepo is empty: set it to "owner/name" to file issues upstream (see README.md#configuration)')
+        }
+        const rec = loadIssue(dir, id)
+        if (rec.issueUrl) return { id, issueUrl: rec.issueUrl, alreadyFiled: true }
+        return { id, issueUrl: await submitIssue(dir, cfg.reportRepo, rec, PLUGIN), alreadyFiled: false }
+      }
+      if (!args.note) throw new Error('lceda_report solve needs note: what fixed it (see README.md#reporting-problems)')
+      const { record, commented } = await solveIssue(dir, id, args.note)
+      return { id: record.id, resolution: record.resolution?.note ?? '', issueUrl: record.issueUrl ?? '', commentedOnIssue: commented }
+    },
+  }))
+
   // The host never scans package skill directories, so the bundled skill must be registered explicitly.
   ctx.inject(['skills'], (sctx) => {
     try {
@@ -136,7 +223,7 @@ export function apply(ctx: Context, config: ConfigShape): void {
     }
   })
 
-  ctx.tools.register(defineTool({
+  ctx.tools.register(guarded(cfg, {
     name: 'lceda_session',
     description: 'Manage LCEDA Pro headless sessions: open (headless, returns sessionId), list, close (destroy), clean (close stale CLI-origin sessions not owned by this plugin). User GUI sessions are never closed.',
     parameters: {
@@ -171,7 +258,7 @@ export function apply(ctx: Context, config: ConfigShape): void {
     },
   }))
 
-  ctx.tools.register(defineTool({
+  ctx.tools.register(guarded(cfg, {
     name: 'lceda_run',
     description: 'Run editor JavaScript in a headless LCEDA session (eda namespace, async body, return value reported). doc=pcb|sch opens+waits for that document first. ok:true only means the code ran: validate business results inside the code and throw on failure. Write ops refuse while a user GUI session is open.',
     parameters: {
@@ -192,7 +279,7 @@ export function apply(ctx: Context, config: ConfigShape): void {
     },
   }))
 
-  ctx.tools.register(defineTool({
+  ctx.tools.register(guarded(cfg, {
     name: 'lceda_export',
     description: 'Export manufacturing/design artifacts and decode them to a local directory: gerber (zip), bom (csv), pnp (csv), pdf (assembly), netlist (Protel2), svg/png (schematic). CSV UTF-16LE is normalized to UTF-8.',
     parameters: {
@@ -244,7 +331,7 @@ return out;`
     },
   }))
 
-  ctx.tools.register(defineTool({
+  ctx.tools.register(guarded(cfg, {
     name: 'lceda_route',
     description: 'Full autoroute cycle: clearRouting -> export Specctra DSN -> run Freerouting headless -> import SES back. Returns unrouted/violation counts from the Freerouting log and imported track count. Pre-drawn buses are NOT preserved by Freerouting; draw them after import.',
     parameters: {
@@ -297,7 +384,7 @@ return { imported, tracks: lines.length };`
     },
   }))
 
-  ctx.tools.register(defineTool({
+  ctx.tools.register(guarded(cfg, {
     name: 'lceda_check',
     description: 'Verify the board: drc (pcb_Drc.check with getDrcResult fallback; headless check can crash the session), nets (pad nets vs an expected ref|pin->net JSON file), conn (union-find over pads/tracks/vias; pour copper is NOT counted, GND-only-by-pour reads as isolated), all.',
     parameters: {
@@ -363,7 +450,7 @@ return { ran, result, note };`
     },
   }))
 
-  ctx.tools.register(defineTool({
+  ctx.tools.register(guarded(cfg, {
     name: 'lceda_pour',
     description: 'Copper pour maintenance: rebuild (rebuildCopperRegion on every pour + save; create does NOT fill), connectMode (set pad/track connect mode 0=none 1=thermal 2=solid in the DRC rule config via single-arg overwriteCurrentRuleConfiguration, then rebuild). Inner layers must not carry solid pour when inner signal tracks exist.',
     parameters: {
@@ -401,7 +488,7 @@ return { pours: pours.length };`
     },
   }))
 
-  ctx.tools.register(defineTool({
+  ctx.tools.register(guarded(cfg, {
     name: 'lceda_sch_wire',
     description: 'Connect schematic pins with wires (the engineering-conventional method): each wire is a net name plus a polyline through pin hotspots (getAllPinsByPrimitiveId x,y). Wire endpoints must land exactly on pin coordinates. Net labels are decorative; connectivity comes from wire nets.',
     parameters: {
@@ -440,7 +527,7 @@ return { created: ids.length, ids };`
     },
   }))
 
-  ctx.tools.register(defineTool({
+  ctx.tools.register(guarded(cfg, {
     name: 'lceda_sch_netlist',
     description: 'Compile the schematic netlist (Protel2) and optionally diff every ref|pin->net against an expected JSON file. pin.net fields only reflect net labels; this compiled netlist is the source of truth for connectivity.',
     parameters: {

@@ -1,5 +1,8 @@
 import { EventEmitter } from 'node:events'
+import { mkdtempSync, readdirSync, readFileSync } from 'node:fs'
 import { describe, expect, it, vi } from 'vitest'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { connectivity, diffNets, normalizeCsv, parseProtel2 } from '../src/decode'
 import { apply, Config } from '../src/index'
 
@@ -139,3 +142,20 @@ describe('plugin wiring', () => {
   })
 })
 
+describe('failure capture', () => {
+  it('records an unexpected tool error and points at lceda_report', async () => {
+    const workDir = mkdtempSync(join(tmpdir(), 'lceda-work-'))
+    spawnMock.mockImplementation(() => cliChild({ ok: false, error: { message: 'editor exploded at D:\\Clients\\ACME\\x.epcb2' } }))
+    const { ctx, tools } = fakeCtx()
+    apply(ctx as never, Config({ workDir, exePath: process.execPath } as never))
+    await expect(tools.lceda_session.execute({ action: 'open', path: 'E:/x/board.eprj3' })).rejects.toThrow(
+      /editor exploded[\s\S]*recorded as .*lceda_session/,
+    )
+    const files = readdirSync(join(workDir, 'issues'))
+    expect(files).toHaveLength(1)
+    const body = readFileSync(join(workDir, 'issues', files[0]), 'utf8')
+    expect(body).not.toContain('ACME') // redacted before it hits disk
+    expect(body).toContain('<path>')
+    expect(JSON.parse(body).tool).toBe('lceda_session')
+  })
+})
