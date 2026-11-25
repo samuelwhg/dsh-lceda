@@ -1,0 +1,17 @@
+# 发布的只有 package.json "files" 里列的那几项；这里再显式挡住开发件，
+# 防止将来 files 被改动或换人发布时把源码/测试/本机配置误发出去。
+src/
+tests/
+AGENTS.md
+tsconfig.json
+tsdown.config.mjs
+vitest.config.ts
+pnpm-lock.yaml
+pnpm-workspace.yaml
+.github/
+coverage/
+*.tgz
+*.log
+.npm-cache/
+node_modules/
+.dsh-lceda/

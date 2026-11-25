@@ -1,4 +1,13 @@
 node_modules/
 *.tsbuildinfo
-
 *.tgz
+
+# 本地运行/工具产物
+.npm-cache/
+coverage/
+dist/
+*.log
+.DS_Store
+.env
+.env.*
+.dsh-lceda/
