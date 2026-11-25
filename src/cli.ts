@@ -231,7 +231,9 @@ export function readyPrelude(uuid: string, timeoutMs = 30000): string {
     // openDocument returns no tab while the project is still loading; retry instead of polling a tab that never came.
     if (!tab) tab = await eda.dmt_EditorControl.openDocument(uuid);
     if (waited > ${timeoutMs}) {
-      throw new Error('document not ready after ${timeoutMs}ms: ' + uuid + (tab ? '' : ' (openDocument returned no tab: the project is still loading, or the document uuid is wrong)'));
+      throw new Error('document not ready after ${timeoutMs}ms: ' + uuid + (tab
+        ? ' (the editor handed out a tab but never loaded the document: a stale headless session may still hold this project — run lceda_session { "action": "clean" } and retry)'
+        : ' (openDocument returned no tab: the project is still loading, or the document uuid is wrong)'));
     }
     const step = tab ? 100 : 500;
     await new Promise((r) => setTimeout(r, step));

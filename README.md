@@ -180,12 +180,19 @@ return `null`).
 | `lceda_session` | `open` / `list` / `close` / `clean` headless sessions; GUI sessions are never touched |
 | `lceda_run` | run editor JavaScript (`doc=pcb\|sch` opens and waits first) |
 | `lceda_export` | export Gerber / BOM / pick-and-place / assembly (UTF-16LE CSV decoded) |
+| `lceda_rules` | read the rules the autorouter sees, or write a routing-ready preset (track width per net kind, clearance floor, via pad/hole); names derive from the values, so a rerun is a no-op |
 | `lceda_route` | `clearRouting` (skipped with `keepExisting`) → DSN → Freerouting → SES import → save; a zero-track import throws instead of reporting success |
 | `lceda_check` | `drc`, pad-net diff against an expected JSON, pad/track/via connectivity (`full: true` for the whole list) |
 | `lceda_pour` | rebuild or set connect mode of copper pours |
 | `lceda_sch_wire` | draw schematic wires onto exact pin hotspots |
 | `lceda_sch_netlist` | compile the schematic netlist |
 | `lceda_report` | `list` recorded failures, `submit` one upstream via your own `gh`, `solve` attach the fix |
+
+Only four rule kinds reach Freerouting — per net-class track width, clearance, the via
+padstack, and layer type (they travel inside the DSN). Net-by-net, region, differential-pair
+and equal-length rules stay inside LCEDA's own DRC, so `lceda_rules` sets widths/clearance/via
+and leaves the rest to the GUI. Default preset: signal 0.2 mm, power 0.5 mm, ground 0.3 mm,
+clearance 0.15 mm, via 0.6/0.3 mm.
 
 Long lists come back as a count plus the first rows, with the full list written to
 `<workDir>/reports/`; ask for `full: true` when the first rows are not enough. Every

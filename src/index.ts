@@ -25,6 +25,8 @@ import {
   submitIssue,
 } from './issues'
 import type { ConnPad, ConnSeg, ConnVia } from './decode'
+import { checkPreset, DEFAULT_PRESET, netKind, planFor } from './rules'
+import type { Preset } from './rules'
 
 type Json = null | boolean | number | string | Json[] | { [k: string]: Json }
 
@@ -463,8 +465,10 @@ const imported = await eda.pcb_Document.importAutoRouteSesFile(f);
 await eda.pcb_Document.save();
 const lines = await getAllRetry(() => eda.pcb_PrimitiveLine.getAll());
 const vias = await eda.pcb_PrimitiveVia.getAll();
-return { imported, tracks: lines.length, vias: (vias || []).length };`
-      const res = (await call(cfg, owned, args.session, code2, undefined, 180000)) as unknown as { imported: boolean; tracks: number; vias: number }
+const byTrack = {};
+for (const r of (await eda.pcb_Drc.getNetRules()) || []) byTrack[r.Track] = (byTrack[r.Track] || 0) + 1;
+return { imported, tracks: lines.length, vias: (vias || []).length, rules: byTrack };`
+      const res = (await call(cfg, owned, args.session, code2, undefined, 180000)) as unknown as { imported: boolean; tracks: number; vias: number; rules: Record<string, number> }
       if (!res.imported || res.tracks === 0) {
         throw new Error(
           `SES import produced no track (imported=${res.imported}, tracks=${res.tracks}); the board was cleared and saved without routing — ` +
@@ -472,6 +476,136 @@ return { imported, tracks: lines.length, vias: (vias || []).length };`
         )
       }
       return { ...res, unrouted, violations, dsn: dsnPath, ses: sesPath, log: logPath }
+    },
+  }))
+
+  ctx.tools.register(guarded(cfg, {
+    name: 'lceda_rules',
+    description:
+      'Read the design rules that reach the autorouter, or write a routing-ready preset into them. Read returns the named track/clearance/via rule sets, the per-net assignment and net classes. Apply adds value-named rule sets and points every net at the matching one (ground / power / signal by name); rerunning with the same numbers is a no-op. Only track width, clearance, via padstack and layer type reach Freerouting: net-by-net, region, differential-pair and length rules stay inside LCEDA DRC.',
+    parameters: {
+      action: { type: 'string', description: 'read (default) | apply.' },
+      signalWidth: { type: 'number', description: 'Signal net track width, mm (default 0.2).' },
+      powerWidth: { type: 'number', description: 'Power net track width, mm (default 0.5).' },
+      gndWidth: { type: 'number', description: 'Ground net track width, mm (default 0.3).' },
+      clearance: { type: 'number', description: 'Clearance floor for all nets, mm (default 0.15; JLCPCB standard is 0.127).' },
+      viaPad: { type: 'number', description: 'Via outer pad, mm (default 0.6).' },
+      viaHole: { type: 'number', description: 'Via drill, mm (default 0.3).' },
+      save: { type: 'boolean', description: 'Save the board after apply (default true).' },
+      session: { type: 'string' },
+    },
+    output: { schema: { type: 'object', additionalProperties: true }, render: jsonRender },
+    async execute(args): Promise<Record<string, Json>> {
+      const preset: Preset = {
+        signalWidth: args.signalWidth ?? DEFAULT_PRESET.signalWidth,
+        powerWidth: args.powerWidth ?? DEFAULT_PRESET.powerWidth,
+        gndWidth: args.gndWidth ?? DEFAULT_PRESET.gndWidth,
+        clearance: args.clearance ?? DEFAULT_PRESET.clearance,
+        viaPad: args.viaPad ?? DEFAULT_PRESET.viaPad,
+        viaHole: args.viaHole ?? DEFAULT_PRESET.viaHole,
+      }
+      checkPreset(preset)
+      const code = `${RETRY_GETALL}
+${readyPrelude(needUuid(cfg, 'pcb'))}
+const d = eda.pcb_Drc;
+const raw = (await d.getCurrentRuleConfiguration()) || {};
+const cfgObj = raw.config || raw;
+function sec(a, b) { return (cfgObj[a] && cfgObj[a][b]) || {} }
+function num(v) { return typeof v === 'number' ? v : null }
+function trackWidth(v) { const d1 = v && v.form && v.form.data && v.form.data['1']; return d1 ? num(d1.defaultValue) : null }
+function clearanceOf(v) { const t = v && v.tables && v.tables['1']; const c = t && t.content; return c && c[0] ? num(c[0][0]) : null }
+function viaOf(v) { const f = (v && v.form) || {}; return { pad: num(f.viaOuterdiameterDefault), hole: num(f.viaInnerdiameterDefault) } }
+const all = (await d.getNetRules()) || [];
+const nets = all.filter((r) => r && r.type === 'net');
+const byTrack = {};
+for (const r of nets) byTrack[r.Track] = (byTrack[r.Track] || 0) + 1;
+const track = sec('Physics', 'Track');
+const spacing = sec('Spacing', 'Safe Spacing');
+const viaSize = sec('Physics', 'Via Size');
+return {
+  configName: await d.getCurrentRuleConfigurationName(),
+  track: Object.keys(track).map((n) => ({ name: n, width: trackWidth(track[n]) })),
+  spacing: Object.keys(spacing).map((n) => ({ name: n, clearance: clearanceOf(spacing[n]) })),
+  viaSizes: Object.keys(viaSize).map((n) => ({ name: n, pad: viaOf(viaSize[n]).pad, hole: viaOf(viaSize[n]).hole })),
+  netClasses: await d.getAllNetClasses(),
+  nets: nets.length,
+  byTrack,
+  netNames: nets.map((r) => r.name),
+}`
+      const read = (await call(cfg, owned, args.session, code, undefined, 180000)) as unknown as {
+        configName: string
+        track: { name: string; width: number | null }[]
+        spacing: { name: string; clearance: number | null }[]
+        viaSizes: { name: string; pad: number | null; hole: number | null }[]
+        netClasses: { name: string; nets: string[] }[]
+        nets: number
+        byTrack: Record<string, number>
+        netNames: string[]
+      }
+      const plan = planFor(preset)
+      const out: Record<string, Json> = {
+        configName: read.configName,
+        track: read.track as unknown as Json,
+        spacing: read.spacing as unknown as Json,
+        viaSizes: read.viaSizes as unknown as Json,
+        netClasses: read.netClasses as unknown as Json,
+        nets: read.nets,
+        byTrack: read.byTrack as unknown as Json,
+        plan: plan as unknown as Json,
+        note: 'Freerouting only reads per-class width, clearance, via padstack and layer type from the DSN; net-by-net, region, differential-pair and length rules never leave LCEDA.',
+      }
+      if (args.action !== 'apply') return out
+      const assign: Record<string, { Track: string; 'Safe Spacing': string; 'Via Size': string }> = {}
+      for (const n of read.netNames) {
+        assign[n] = { Track: plan.assign[netKind(n)], 'Safe Spacing': plan.spacing.name, 'Via Size': plan.via.name }
+      }
+      const applyCode = `${RETRY_GETALL}
+${readyPrelude(needUuid(cfg, 'pcb'))}
+const plan = ${JSON.stringify(plan)};
+const assign = ${JSON.stringify(assign)};
+const d = eda.pcb_Drc;
+const raw = (await d.getCurrentRuleConfiguration()) || {};
+const cfgObj = raw.config || raw;
+function count(rs) { const o = {}; for (const r of rs) o[r.Track] = (o[r.Track] || 0) + 1; return o }
+const before = count((await d.getNetRules()) || []);
+cfgObj.Physics = cfgObj.Physics || {};
+cfgObj.Physics.Track = cfgObj.Physics.Track || {};
+for (const t of plan.track) {
+  if (cfgObj.Physics.Track[t.name]) continue;
+  cfgObj.Physics.Track[t.name] = { editName: t.name, unit: 'mm', isSetDefault: false, form: { status: 1, data: { '1': { minValue: 0.127, defaultValue: t.width, maxValue: 2.54 } } } };
+}
+const spacingSec = (cfgObj.Spacing && cfgObj.Spacing['Safe Spacing']) || {};
+if (!spacingSec[plan.spacing.name]) {
+  let base = null;
+  const keys = Object.keys(spacingSec);
+  for (const k of keys) { if (spacingSec[k] && spacingSec[k].isSetDefault) { base = spacingSec[k]; break } }
+  if (!base && keys.length) base = spacingSec[keys[0]];
+  if (base) {
+    const copy = JSON.parse(JSON.stringify(base));
+    copy.editName = plan.spacing.name;
+    copy.isSetDefault = false;
+    const tables = copy.tables || {};
+    for (const k of Object.keys(tables)) {
+      const content = (tables[k] && tables[k].content) || [];
+      for (const row of content) for (let j = 0; j < row.length; j++) if (typeof row[j] === 'number' && row[j] < plan.spacing.clearance) row[j] = plan.spacing.clearance;
+    }
+    spacingSec[plan.spacing.name] = copy;
+  }
+}
+cfgObj.Physics['Via Size'] = cfgObj.Physics['Via Size'] || {};
+if (!cfgObj.Physics['Via Size'][plan.via.name]) {
+  cfgObj.Physics['Via Size'][plan.via.name] = { editName: plan.via.name, unit: 'mm', isSetDefault: false, form: {
+    viaOuterdiameterMin: Math.min(0.5, plan.via.pad), viaOuterdiameterMax: 10, viaOuterdiameterDefault: plan.via.pad,
+    viaInnerdiameterMin: Math.min(0.3, plan.via.hole), viaInnerdiameterMax: 6.3, viaInnerdiameterDefault: plan.via.hole } };
+}
+const wrote = await d.overwriteCurrentRuleConfiguration(cfgObj);
+const nets = ((await d.getNetRules()) || []).map((r) => (assign[r.name] ? Object.assign({}, r, assign[r.name]) : r));
+const netWrote = await d.overwriteNetRules(nets);
+let saved = false;
+if (netWrote && ${args.save === false ? 'false' : 'true'}) saved = !!(await eda.pcb_Document.save());
+return { wrote, netWrote, saved, before, after: count((await d.getNetRules()) || []) };`
+      const res = (await call(cfg, owned, args.session, applyCode, undefined, 180000)) as unknown as Record<string, Json>
+      return { ...out, applied: res, next: 'run lceda_route, then lceda_check to confirm the board still matches the netlist' }
     },
   }))
 

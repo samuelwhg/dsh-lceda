@@ -162,12 +162,18 @@ DSH 没有「项目级插件配置」这种文件：工程靠「会话在哪里�
 | `lceda_session` | 无头会话 `open` / `list` / `close` / `clean`；从不碰用户 GUI 会话 |
 | `lceda_run` | 跑编辑器 JavaScript（`doc=pcb\|sch` 先打开并等待文档就绪） |
 | `lceda_export` | 导出 Gerber / BOM / 坐标 / 装配图（UTF-16LE CSV 已解码） |
+| `lceda_rules` | 读布线器实际看到的规则，或写入「布线就绪」预设（按网络类别的线宽、间距下限、过孔盘径/孔径）；规则名由数值生成，重跑不会重复建 |
 | `lceda_route` | `clearRouting`（`keepExisting` 时跳过）→ DSN → Freerouting → 导入 SES → 保存；导入 0 轨直接报错，不算成功 |
 | `lceda_check` | `drc`、与期望 JSON 比对焊盘网表、焊盘/走线/过孔连通性（`full: true` 返回全量） |
 | `lceda_pour` | 重建铺铜或设置连接方式 |
 | `lceda_sch_wire` | 在精确引脚热点上画原理图导线 |
 | `lceda_sch_netlist` | 编译原理图网表 |
 | `lceda_report` | `list` 看已记录故障、`submit` 用你自己的 `gh` 上报、`solve` 记下解决办法 |
+
+真正传给 Freerouting 的只有四样：每个网络类的线宽、间距、过孔焊盘/孔径、层类型（都装在
+DSN 里）。网对网规则、区域规则、差分对、等长组只影响 LCEDA 自己的 DRC，所以 `lceda_rules`
+只写线宽/间距/过孔，其余留给 GUI。默认预设：信号 0.2 mm、电源 0.5 mm、地 0.3 mm、间距
+0.15 mm、过孔 0.6/0.3 mm。
 
 长列表只回「条数 + 前几行」，全量落在 `<workDir>/reports/`；前几行不够时加
 `full: true`。每次写完都要读回核对：导入没有落地任何走线是错误，不是部分成功。
