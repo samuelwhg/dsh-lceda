@@ -20,6 +20,8 @@ translated to `/mnt/<drive>` when running under WSL). The published package ship
 built `lib/`, so installing runs no build script.
 
 ```sh
+# from npm
+dsh plugin --profile <profile> add dsh-lceda
 # from a checkout
 dsh plugin --profile <profile> add /path/to/dsh-lceda
 # from git (build output is committed)
@@ -27,7 +29,7 @@ dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.gi
 ```
 
 Restart that profile. The bundle's `cordis.patch.yml` inserts the `dsh-lceda` row, so
-the nine `lceda_*` tools and the `lceda-dev` skill appear without hand-editing config.
+the ten `lceda_*` tools and the `lceda-dev` skill appear without hand-editing config.
 
 ## Environment
 
@@ -153,7 +155,7 @@ path, e.g. `$.invokeTimeoutMs expected number but got nope`.
 | --- | --- | --- |
 | which project | where the session runs: the only `.eprj3` under it is used | `projectPath` on the bundle row |
 | the `lceda-dev` skill | `<project>/.dsh/skills/lceda-dev/SKILL.md` (or `.agents/skills/…`) outranks the bundled copy | shipped in the package, registered in memory on install |
-| the nine tools | — | profile |
+| the ten tools | — | profile |
 | MCP server | not used: the plugin drives `lceda-pro`'s own CLI, so nothing is written to `.dsh/mcp.json` | — |
 
 DSH has no per-project plugin config file: the project is chosen by where the session

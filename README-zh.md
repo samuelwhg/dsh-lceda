@@ -16,13 +16,15 @@ DeepSeek Harness 的 **嘉立创 EDA（LCEDA 专业版）** 无头开发插件�
 运行和 WSL 里运行都支持：exe 路径自动探测，`sesDirWin` 只在 WSL 下翻译成 `/mnt/<盘>`）。发行包已带构建产物 `lib/`，安装时不跑构建脚本。
 
 ```sh
+# 从 npm 安装
+dsh plugin --profile <profile> add dsh-lceda
 # 从本地检出安装
 dsh plugin --profile <profile> add /path/to/dsh-lceda
 # 从 git 安装（构建产物已入库）
 dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.git
 ```
 
-重启该 profile。bundle 的 `cordis.patch.yml` 会插入 `dsh-lceda` 这一行，九个 `lceda_*`
+重启该 profile。bundle 的 `cordis.patch.yml` 会插入 `dsh-lceda` 这一行，十个 `lceda_*`
 工具与 `lceda-dev` skill 自动出现，无需手改配置。
 
 ## 环境
@@ -138,7 +140,7 @@ dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.gi
 | --- | --- | --- |
 | 用哪个工程 | 会话在哪个目录跑：那里唯一的 `.eprj3` | bundle 行上的 `projectPath` |
 | `lceda-dev` 技能 | `<工程>/.dsh/skills/lceda-dev/SKILL.md`（或 `.agents/skills/…`）优先，盖过随包那份 | 装在包里，安装时注册进内存 |
-| 九个工具 | — | profile |
+| 十个工具 | — | profile |
 | MCP server | 不用：插件直接调 `lceda-pro` 自己的 CLI，不写 `.dsh/mcp.json` | — |
 
 DSH 没有「项目级插件配置」这种文件：工程靠「会话在哪里跑」选定，其余都在上面那条 profile 行里。

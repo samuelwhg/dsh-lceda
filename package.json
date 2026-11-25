@@ -10,6 +10,23 @@
     "url": "git+https://github.com/samuelwhg/dsh-lceda.git"
   },
   "homepage": "https://github.com/samuelwhg/dsh-lceda#readme",
+  "bugs": {
+    "url": "https://github.com/samuelwhg/dsh-lceda/issues"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "lceda",
+    "jlcpcb",
+    "easyeda",
+    "eda",
+    "pcb",
+    "schematic",
+    "autoroute",
+    "freerouting",
+    "gerber"
+  ],
   "exports": {
     ".": "./lib/index.js",
     "./locale/*.json": "./locale/*.json",
@@ -71,7 +88,11 @@
     "labels": []
   },
   "engines": {
-    "node": "^22.19.0 || >=24.0.0"
+    "node": "^22.19.0 || >=24.0.0",
+    "dsh": ">=0.2.2-0 <0.3.0"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "packageManager": "pnpm@11.7.0",
   "license": "Apache-2.0",
