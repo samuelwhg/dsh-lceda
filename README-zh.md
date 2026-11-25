@@ -18,10 +18,8 @@ DeepSeek Harness 的 **嘉立创 EDA（LCEDA 专业版）** 无头开发插件�
 ```sh
 # 从 npm 安装
 dsh plugin --profile <profile> add dsh-lceda
-# 从本地检出安装
+# 从本地检出安装（先 pnpm install && pnpm build）
 dsh plugin --profile <profile> add /path/to/dsh-lceda
-# 从 git 安装（构建产物已入库）
-dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.git
 ```
 
 重启该 profile。bundle 的 `cordis.patch.yml` 会插入 `dsh-lceda` 这一行，十个 `lceda_*`
@@ -71,7 +69,7 @@ dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.gi
 >    `gh auth login`（或把 token 喂给 `gh auth login --with-token`），并确认该账号能在
 >    `reportRepo` 里开 issue。
 > 3. 装进该 profile——从 git：
->    `dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.git`
+>    `dsh plugin --profile <profile> add dsh-lceda`
 >    （本地目录则 `add /path/to/dsh-lceda`）。装完确认 bundle 插入了 `id: dsh-lceda` 那一行。
 > 4. 问我要 `.eprj3` 工程路径，以及这个 DSH 的同一个工作区里是否放着多个工程。`exePath` 与
 >    `spawnCwd` 留空——会按各盘 `Program Files{, (x86)}\lceda-pro` 自动探测。只有我说 LCEDA
@@ -267,8 +265,8 @@ LCEDA Pro 升级可能改名或移除这些调用；工具开始报 `... is not 
 ## 升级、回滚、卸载
 
 ```sh
-dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.git   # 升级
-dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.git#<tag-或-commit>  # 锁定 / 回滚
+dsh plugin --profile <profile> add dsh-lceda            # 升级到最新版
+dsh plugin --profile <profile> add dsh-lceda@<版本号>   # 锁定 / 回滚
 dsh plugin --profile <profile> remove dsh-lceda                                  # 卸载
 ```
 
@@ -296,7 +294,7 @@ dsh plugin --profile <profile> remove dsh-lceda                                 
 
 ```sh
 pnpm install
-pnpm build        # tsdown → lib/（已入库，安装时免构建）
+pnpm build        # tsdown → lib/（不入库，npm publish 前由 prepublishOnly 构建）
 pnpm test         # vitest
 npx tsc --noEmit
 npm_config_cache="$PWD/.npm-cache" npx -y dsh-standards@1.6.12 check . --scope entry --entry-claim static --no-exec --host-version 0.2.2-rc.3

@@ -22,10 +22,8 @@ built `lib/`, so installing runs no build script.
 ```sh
 # from npm
 dsh plugin --profile <profile> add dsh-lceda
-# from a checkout
+# from a checkout (build first: pnpm install && pnpm build)
 dsh plugin --profile <profile> add /path/to/dsh-lceda
-# from git (build output is committed)
-dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.git
 ```
 
 Restart that profile. The bundle's `cordis.patch.yml` inserts the `dsh-lceda` row, so
@@ -77,10 +75,9 @@ installs, configures and smoke-tests the plugin without you hunting for document
 >    release tarball into `~/.local/bin`, macOS: `brew install gh`. Then have me run
 >    `gh auth login` once (or paste a token into `gh auth login --with-token`) and confirm
 >    the account can open issues in `reportRepo`.
-> 3. Install into that profile — from git:
->    `dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.git`
->    (from a local checkout: `add /path/to/dsh-lceda`). Then confirm the bundle inserted
->    an `id: dsh-lceda` row.
+> 3. Install into that profile: `dsh plugin --profile <profile> add dsh-lceda`
+>    (from a local checkout: build it with `pnpm install && pnpm build`, then `add
+>    /path/to/dsh-lceda`). Then confirm the bundle inserted an `id: dsh-lceda` row.
 > 4. Ask me for the `.eprj3` project path and whether this DSH runs several projects in
 >    one workspace. Leave `exePath` and `spawnCwd` empty — they are auto-detected
 >    (`Program Files{, (x86)}\lceda-pro` on every drive). Only set `exePath` if I say
@@ -309,8 +306,8 @@ or the same failure has shown up twice.
 ## Upgrade, rollback, uninstall
 
 ```sh
-dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.git   # upgrade
-dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.git#<tag-or-commit>  # pin / roll back
+dsh plugin --profile <profile> add dsh-lceda            # upgrade to the latest release
+dsh plugin --profile <profile> add dsh-lceda@<version>  # pin / roll back
 dsh plugin --profile <profile> remove dsh-lceda                                  # uninstall
 ```
 
@@ -340,7 +337,7 @@ sessions it owns.
 
 ```sh
 pnpm install
-pnpm build        # tsdown → lib/ (committed, so installs need no build)
+pnpm build        # tsdown → lib/ (not in git; npm publish builds it via prepublishOnly)
 pnpm test         # vitest
 npx tsc --noEmit
 npm_config_cache="$PWD/.npm-cache" npx -y dsh-standards@1.6.12 check . --scope entry --entry-claim static --no-exec --host-version 0.2.2-rc.3
