@@ -148,12 +148,17 @@ return `null`).
 | `lceda_session` | `open` / `list` / `close` / `clean` headless sessions; GUI sessions are never touched |
 | `lceda_run` | run editor JavaScript (`doc=pcb\|sch` opens and waits first) |
 | `lceda_export` | export Gerber / BOM / pick-and-place / assembly (UTF-16LE CSV decoded) |
-| `lceda_route` | `clearRouting` → DSN → Freerouting → SES import → save |
-| `lceda_check` | `drc`, pad-net diff against an expected JSON, pad/track/via connectivity |
+| `lceda_route` | `clearRouting` (skipped with `keepExisting`) → DSN → Freerouting → SES import → save; a zero-track import throws instead of reporting success |
+| `lceda_check` | `drc`, pad-net diff against an expected JSON, pad/track/via connectivity (`full: true` for the whole list) |
 | `lceda_pour` | rebuild or set connect mode of copper pours |
 | `lceda_sch_wire` | draw schematic wires onto exact pin hotspots |
 | `lceda_sch_netlist` | compile the schematic netlist |
 | `lceda_report` | `list` recorded failures, `submit` one upstream via your own `gh`, `solve` attach the fix |
+
+Long lists come back as a count plus the first rows, with the full list written to
+`<workDir>/reports/`; ask for `full: true` when the first rows are not enough. Every
+write is followed by a read-back: an import that landed no track is an error, not a
+partial success.
 
 The bundled `lceda-dev` skill carries the workflow order and the red lines (do not
 write while the GUI holds the project, never overwrite `PCB1.epcb2` wholesale, never

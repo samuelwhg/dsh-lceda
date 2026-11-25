@@ -9,11 +9,11 @@ description: 嘉立创 EDA Pro（LCEDA）headless 开发流程与红线。当用
 
 ## 工具选择
 - 会话：`lceda_session` open/list/close/clean。**动手前先 clean**：zombie headless 会话会让 getAll 返回 null。
-- 任意编辑器操作：`lceda_run`（doc=pcb|sch 自动 openDocument+waitForDocumentReady）。代码里**自己校验业务结果并 throw**——envelope ok:true 只代表代码跑完。
+- 任意编辑器操作：`lceda_run`（doc=pcb|sch 先用 getDocumentReadyState 探测，就绪即返回；没就绪才 openDocument 重试，整段约 0.6s 而不是 30s）。代码里**自己校验业务结果并 throw**——envelope ok:true 只代表代码跑完。
 - 原理图接线：`lceda_sch_wire`（导线端点必须精确等于引脚 x,y 热点）；连通性以 `lceda_sch_netlist` 编译网表为准，**pin.net 只反映网络标签**。
-- 布线：`lceda_route`（clearRouting→DSN→Freerouting→SES）。**预画总线不会被 Freerouting 保留**：先布通再删指定网旧线、重画平行总线。
+- 布线：`lceda_route`（clearRouting→DSN→Freerouting→SES）。**预画总线不会被 Freerouting 保留**：先布通再删指定网旧线、重画平行总线；要在已有走线上补布用 `keepExisting: true`（不 clearRouting）。**导入 0 轨是失败**——工具会抛错，别把「导入成功」当布好，按报错里的 log/ses 路径查。
 - 铺铜：`lceda_pour` rebuild / connectMode。**create 不填充**，必须 rebuildCopperRegion；connectMode 0=不连接 1=十字 2=实心，持久化只能单参 overwriteCurrentRuleConfiguration(c)。
-- 核对：`lceda_check` drc/nets/conn。headless 的 pcb_Drc.check 可能崩会话（工具已回退 getDrcResult）；**conn 不计铺铜**，纯铺铜连接的 GND 焊盘读作孤立属预期；headless create 的线/孔网表绑定可能失效→对全部 line/via 跑 modify(id,{net:同名}) 重绑后 DRC 才准。
+- 核对：`lceda_check` drc/nets/conn（长列表只回条数+前几行，全量在 `<workDir>/reports/`，需要全量加 `full: true`）。headless 的 pcb_Drc.check 可能崩会话（工具已回退 getDrcResult）；**conn 不计铺铜**，纯铺铜连接的 GND 焊盘读作孤立属预期；headless create 的线/孔网表绑定可能失效→对全部 line/via 跑 modify(id,{net:同名}) 重绑后 DRC 才准。
 - 导出：`lceda_export`（CSV 自动 UTF-16LE→UTF-8）。
 - 故障：意外报错已自动落进 `<workDir>/issues` 并在错误里给出 id。**先 `lceda_report { "action": "search", "id": ... }`**——本地和上游 Issues 都查一遍，查到带解法的直接照做；没有就自己调，修好后 `{ "action": "solve", "id": ..., "note": "原因+改法" }`；最后 `{ "action": "submit", "id": ... }` 把问题+解法一起反哺（命中同类会折叠成评论，不重复开；先问用户一句）。没装 `gh` 会给预填链接（Windows `winget install --id GitHub.cli` / WSL `sudo apt install gh` / macOS `brew install gh`，再让用户 `gh auth login` 一次——凭据始终在用户手里）。配置类报错（带 README 锚点）不用上报，按提示改配置。
 

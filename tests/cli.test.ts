@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { Config } from '../src/config'
-import { driveRoot, driveRoots, exeCandidates, firstExisting, resolveExe, soleProject, workspaceProjects, wslToWin } from '../src/cli'
+import { driveRoot, driveRoots, exeCandidates, firstExisting, readyPrelude, resolveExe, soleProject, workspaceProjects, wslToWin } from '../src/cli'
 
 describe('exe discovery', () => {
   it('returns the first candidate that exists, keeps the miss list', async () => {
@@ -74,5 +74,27 @@ describe('project-level default', () => {
   it('explains the empty workspace case', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'lceda-ws-'))
     expect(() => soleProject(undefined, dir)).toThrow('no project path')
+  })
+})
+
+describe('document prelude', () => {
+  it('returns at once when the document is already ready', () => {
+    const code = readyPrelude('abc123')
+    expect(code).toContain('probe(tab || uuid)')
+    expect(code).toContain("if (st === 'ready') return;")
+    expect(code).toContain('await ready("abc123")')
+  })
+
+  it('retries openDocument instead of polling a tab that never came', () => {
+    const code = readyPrelude('abc123')
+    expect(code).toContain('if (!tab) tab = await eda.dmt_EditorControl.openDocument(uuid);')
+    expect(code.indexOf('openDocument')).toBeLessThan(code.indexOf('waited += step'))
+    expect(code).toContain('openDocument returned no tab')
+  })
+
+  it('falls back to the blocking wait when the build has no ready-state probe', () => {
+    const code = readyPrelude('abc123')
+    expect(code).toContain('if (!probe) {')
+    expect(code).toContain('waitForDocumentReady(uuid, 30000)')
   })
 })

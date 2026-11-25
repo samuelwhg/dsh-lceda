@@ -207,8 +207,39 @@ export async function guardGui(cfg: Config): Promise<void> {
   if (gui.length) throw new Error(`user GUI session open (${gui.map((s) => s.sessionId).join(', ')}); close it first or set allowGuiConcurrent. Two-way .eprj3 sync would race headless writes.`)
 }
 
-export function readyPrelude(uuid: string): string {
-  return `await eda.dmt_EditorControl.openDocument(${JSON.stringify(uuid)});\nawait eda.dmt_EditorControl.waitForDocumentReady(${JSON.stringify(uuid)}, 30000);\n`
+/**
+ * Open the document only when it is not loaded yet, then poll its ready state.
+ * `waitForDocumentReady` on an already-open document still costs a full wait, and
+ * `openDocument` re-activates the tab, so the ready-state probe keeps repeat calls cheap.
+ */
+export function readyPrelude(uuid: string, timeoutMs = 30000): string {
+  const id = JSON.stringify(uuid)
+  return `async function ready(uuid) {
+  const probe = eda.dmt_EditorControl.getDocumentReadyState;
+  if (!probe) {
+    // Older builds: no ready-state probe, fall back to the blocking wait.
+    await eda.dmt_EditorControl.openDocument(uuid);
+    await eda.dmt_EditorControl.waitForDocumentReady(uuid, ${timeoutMs});
+    return;
+  }
+  let tab;
+  let waited = 0;
+  for (;;) {
+    const st = String(await probe(tab || uuid));
+    if (st === 'ready') return;
+    if (st === 'failed') throw new Error('document failed to load: ' + uuid);
+    // openDocument returns no tab while the project is still loading; retry instead of polling a tab that never came.
+    if (!tab) tab = await eda.dmt_EditorControl.openDocument(uuid);
+    if (waited > ${timeoutMs}) {
+      throw new Error('document not ready after ${timeoutMs}ms: ' + uuid + (tab ? '' : ' (openDocument returned no tab: the project is still loading, or the document uuid is wrong)'));
+    }
+    const step = tab ? 100 : 500;
+    await new Promise((r) => setTimeout(r, step));
+    waited += step;
+  }
+}
+await ready(${id});
+`
 }
 
 /** getAll can return null right after open; retry with settle. */

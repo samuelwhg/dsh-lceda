@@ -129,6 +129,24 @@ export function needUuid(cfg: ConfigShape, kind: 'pcb' | 'sch'): string {
   return u
 }
 
+/**
+ * Compact result for long lists: counts + the first `limit` rows inline, the whole
+ * array in `<workDir>/reports/<name>-<time>.json`. Full evidence stays on disk;
+ * the model only pays for the head of the list.
+ */
+function brief(cfg: ConfigShape, name: string, items: unknown[], limit = 30): Record<string, Json> {
+  const dir = path.join(cfg.workDir, 'reports')
+  fs.mkdirSync(dir, { recursive: true })
+  const file = path.join(dir, `${name}-${new Date().toISOString().replace(/[:.]/g, '-')}.json`)
+  fs.writeFileSync(file, JSON.stringify(items))
+  return {
+    count: items.length,
+    truncated: items.length > limit,
+    items: items.slice(0, limit) as Json[],
+    report: file,
+  }
+}
+
 const pkg = createRequire(import.meta.url)('../package.json') as { name: string; version: string }
 const PLUGIN = `${pkg.name}@${pkg.version}`
 
@@ -368,16 +386,14 @@ const out = {};
 const want = ${JSON.stringify(kinds)};
 const base = ${JSON.stringify(base)};
 if (want.some((k) => ['gerber','pnp','pdf'].includes(k))) {
-  await eda.dmt_EditorControl.openDocument(${JSON.stringify(needUuid(cfg, 'pcb'))});
-  await eda.dmt_EditorControl.waitForDocumentReady(${JSON.stringify(needUuid(cfg, 'pcb'))}, 30000);
+  ${readyPrelude(needUuid(cfg, 'pcb'))}
   const M = eda.pcb_ManufactureData;
   if (want.includes('gerber')) { const f = await M.getGerberFile(base + '-gerber', false, 'mm'); out.gerber = toB64(await f.arrayBuffer()); }
   if (want.includes('pnp')) { const f = await M.getPickAndPlaceFile(base + '-pnp', 'csv', 'mm'); out.pnp = toB64(await f.arrayBuffer()); }
   if (want.includes('pdf')) { const f = await M.getPdfFile(base + '-assembly', {}); out.pdf = toB64(await f.arrayBuffer()); }
 }
 if (want.some((k) => ['bom','netlist','svg','png'].includes(k))) {
-  await eda.dmt_EditorControl.openDocument(${JSON.stringify(needUuid(cfg, 'sch'))});
-  await eda.dmt_EditorControl.waitForDocumentReady(${JSON.stringify(needUuid(cfg, 'sch'))}, 30000);
+  ${readyPrelude(needUuid(cfg, 'sch'))}
   const S = eda.sch_ManufactureData;
   if (want.includes('bom')) { const f = await S.getBomFile(base + '-bom', 'csv'); out.bom = toB64(await f.arrayBuffer()); }
   if (want.includes('netlist')) { const f = await S.getNetlistFile(base + '-net', 'Protel2'); out.netlist = toB64(await f.arrayBuffer()); }
@@ -403,9 +419,10 @@ return out;`
 
   ctx.tools.register(guarded(cfg, {
     name: 'lceda_route',
-    description: 'Full autoroute cycle: clearRouting -> export Specctra DSN -> run Freerouting headless -> import SES back. Returns unrouted/violation counts from the Freerouting log and imported track count. Pre-drawn buses are NOT preserved by Freerouting; draw them after import.',
+    description: 'Autoroute cycle: (clearRouting unless keepExisting) -> export Specctra DSN -> run Freerouting headless -> import SES back -> counts what actually landed. Throws when the import produced no track: a failed import is not a partial success. Pre-drawn buses are NOT preserved by Freerouting; draw them after import.',
     parameters: {
       passes: { type: 'number', description: 'Freerouting -mp passes (default 100).' },
+      keepExisting: { type: 'boolean', description: 'Keep existing routing: skip clearRouting and route on top of it (Freerouting may not respect it).' },
       session: { type: 'string' },
       workDir: { type: 'string', description: 'Dir for dsn/ses/log (default config workDir); WSL: /mnt/..., Windows: D:\\...' },
     },
@@ -419,10 +436,8 @@ return out;`
       const sesPath = path.join(dir, 'board.ses')
       const logPath = path.join(dir, 'freerouting.log')
       const code1 = `${B64}${RETRY_GETALL}
-await eda.dmt_EditorControl.openDocument(${JSON.stringify(needUuid(cfg, 'pcb'))});
-await eda.dmt_EditorControl.waitForDocumentReady(${JSON.stringify(needUuid(cfg, 'pcb'))}, 30000);
-await eda.pcb_Document.clearRouting();
-const f = await eda.pcb_ManufactureData.getDsnFile('board');
+${readyPrelude(needUuid(cfg, 'pcb'))}
+${args.keepExisting ? '' : 'await eda.pcb_Document.clearRouting();\n'}const f = await eda.pcb_ManufactureData.getDsnFile('board');
 return toB64(await f.arrayBuffer());`
       const b64 = (await call(cfg, owned, args.session, code1, undefined, 180000)) as unknown as string
       fs.writeFileSync(dsnPath, b64ToBuffer(b64))
@@ -442,14 +457,20 @@ return toB64(await f.arrayBuffer());`
       fs.mkdirSync(toLocal(cfg.sesDirWin), { recursive: true })
       fs.copyFileSync(sesPath, path.join(toLocal(cfg.sesDirWin), 'board.ses'))
       const code2 = `${RETRY_GETALL}
-await eda.dmt_EditorControl.openDocument(${JSON.stringify(needUuid(cfg, 'pcb'))});
-await eda.dmt_EditorControl.waitForDocumentReady(${JSON.stringify(needUuid(cfg, 'pcb'))}, 30000);
+${readyPrelude(needUuid(cfg, 'pcb'))}
 const f = await eda.sys_FileSystem.readFileFromFileSystem(${JSON.stringify(sesWin)});
 const imported = await eda.pcb_Document.importAutoRouteSesFile(f);
 await eda.pcb_Document.save();
 const lines = await getAllRetry(() => eda.pcb_PrimitiveLine.getAll());
-return { imported, tracks: lines.length };`
-      const res = (await call(cfg, owned, args.session, code2, undefined, 180000)) as unknown as { imported: boolean; tracks: number }
+const vias = await eda.pcb_PrimitiveVia.getAll();
+return { imported, tracks: lines.length, vias: (vias || []).length };`
+      const res = (await call(cfg, owned, args.session, code2, undefined, 180000)) as unknown as { imported: boolean; tracks: number; vias: number }
+      if (!res.imported || res.tracks === 0) {
+        throw new Error(
+          `SES import produced no track (imported=${res.imported}, tracks=${res.tracks}); the board was cleared and saved without routing — ` +
+            `check ${logPath} and ${sesPath}, then restore from your own copy or re-run (see README.md#troubleshooting)`,
+        )
+      }
       return { ...res, unrouted, violations, dsn: dsnPath, ses: sesPath, log: logPath }
     },
   }))
@@ -460,6 +481,7 @@ return { imported, tracks: lines.length };`
     parameters: {
       mode: { type: 'string', description: 'drc | nets | conn | all (default all).' },
       expectedFile: { type: 'string', description: 'Path of expected ref|pin->net JSON for nets mode.' },
+      full: { type: 'boolean', description: 'Return the whole list inline instead of count + first rows (long lists land in <workDir>/reports either way).' },
       session: { type: 'string' },
     },
     output: { schema: { type: 'object', additionalProperties: true }, render: jsonRender },
@@ -468,8 +490,7 @@ return { imported, tracks: lines.length };`
       const out: Record<string, Json> = {}
       if (mode === 'nets' || mode === 'all') {
         const code = `${RETRY_GETALL}
-await eda.dmt_EditorControl.openDocument(${JSON.stringify(needUuid(cfg, 'pcb'))});
-await eda.dmt_EditorControl.waitForDocumentReady(${JSON.stringify(needUuid(cfg, 'pcb'))}, 30000);
+${readyPrelude(needUuid(cfg, 'pcb'))}
 const comps = await getAllRetry(() => eda.pcb_PrimitiveComponent.getAll());
 const actual = {};
 for (const c of comps) {
@@ -481,13 +502,16 @@ return actual;`
         const actual = (await call(cfg, owned, args.session, code, undefined, 180000)) as unknown as Record<string, string>
         if (args.expectedFile) {
           const expected = JSON.parse(fs.readFileSync(args.expectedFile, 'utf8')) as Record<string, string>
-          out.nets = diffNets(actual, expected) as unknown as Json
-        } else out.nets = { actual } as unknown as Json
+          const d = diffNets(actual, expected)
+          out.nets = { checked: d.checked, mismatches: d.mismatches.length, ...brief(cfg, 'net-mismatches', d.mismatches) } as unknown as Json
+        } else {
+          const rows = Object.entries(actual).map(([pin, net]) => ({ pin, net }))
+          out.nets = args.full ? ({ actual } as unknown as Json) : (brief(cfg, 'pad-nets', rows, 40) as unknown as Json)
+        }
       }
       if (mode === 'conn' || mode === 'all') {
         const code = `${RETRY_GETALL}
-await eda.dmt_EditorControl.openDocument(${JSON.stringify(needUuid(cfg, 'pcb'))});
-await eda.dmt_EditorControl.waitForDocumentReady(${JSON.stringify(needUuid(cfg, 'pcb'))}, 30000);
+${readyPrelude(needUuid(cfg, 'pcb'))}
 const comps = await getAllRetry(() => eda.pcb_PrimitiveComponent.getAll());
 const pads = [];
 for (const c of comps) {
@@ -501,12 +525,19 @@ const vias = await getAllRetry(() => eda.pcb_PrimitiveVia.getAll());
 const vs = vias.map((v) => ({ id: v.primitiveId, net: v.net || '', x: v.x, y: v.y }));
 return { pads, segs, vias: vs };`
         const g = (await call(cfg, owned, args.session, code, undefined, 180000)) as unknown as { pads: ConnPad[]; segs: ConnSeg[]; vias: ConnVia[] }
-        out.conn = { isolated: connectivity(g.pads, g.segs, g.vias), pads: g.pads.length, segs: g.segs.length, vias: g.vias.length } as unknown as Json
+        const isolated = connectivity(g.pads, g.segs, g.vias)
+        out.conn = {
+          pads: g.pads.length,
+          segs: g.segs.length,
+          vias: g.vias.length,
+          isolated: args.full
+            ? (isolated as unknown as Json)
+            : (brief(cfg, 'isolated', Object.entries(isolated).map(([net, pads]) => ({ net, pads })), 40) as unknown as Json),
+        } as unknown as Json
       }
       if (mode === 'drc' || mode === 'all') {
         const code = `${RETRY_GETALL}
-await eda.dmt_EditorControl.openDocument(${JSON.stringify(needUuid(cfg, 'pcb'))});
-await eda.dmt_EditorControl.waitForDocumentReady(${JSON.stringify(needUuid(cfg, 'pcb'))}, 30000);
+${readyPrelude(needUuid(cfg, 'pcb'))}
 let ran = false; let result = null; let note = '';
 try { result = await eda.pcb_Drc.getDrcResult(); } catch (e) { result = null; }
 if (!result) {
@@ -533,8 +564,7 @@ return { ran, result, note };`
       await guardGui(cfg)
       const code = args.action === 'connectMode'
         ? `${RETRY_GETALL}
-await eda.dmt_EditorControl.openDocument(${JSON.stringify(needUuid(cfg, 'pcb'))});
-await eda.dmt_EditorControl.waitForDocumentReady(${JSON.stringify(needUuid(cfg, 'pcb'))}, 30000);
+${readyPrelude(needUuid(cfg, 'pcb'))}
 const r = await eda.pcb_Drc.getCurrentRuleConfiguration();
 const c = r.config; const mode = ${args.mode ?? 2};
 const cz = c.Plane['Copper Zone'].copperRegion.form;
@@ -548,8 +578,7 @@ await eda.pcb_Document.save();
 const after = await eda.pcb_Drc.getCurrentRuleConfiguration();
 return { rule: after.name, pours: pours.length };`
         : `${RETRY_GETALL}
-await eda.dmt_EditorControl.openDocument(${JSON.stringify(needUuid(cfg, 'pcb'))});
-await eda.dmt_EditorControl.waitForDocumentReady(${JSON.stringify(needUuid(cfg, 'pcb'))}, 30000);
+${readyPrelude(needUuid(cfg, 'pcb'))}
 const pours = await getAllRetry(() => eda.pcb_PrimitivePour.getAll());
 for (const p of pours) await p.rebuildCopperRegion();
 await eda.pcb_Document.save();
@@ -580,8 +609,7 @@ return { pours: pours.length };`
     async execute(args) {
       await guardGui(cfg)
       const code = `${RETRY_GETALL}
-await eda.dmt_EditorControl.openDocument(${JSON.stringify(needUuid(cfg, 'sch'))});
-await eda.dmt_EditorControl.waitForDocumentReady(${JSON.stringify(needUuid(cfg, 'sch'))}, 30000);
+${readyPrelude(needUuid(cfg, 'sch'))}
 const wires = __CLI__.args.wires;
 const ids = [];
 for (const w of wires) {
@@ -602,13 +630,13 @@ return { created: ids.length, ids };`
     description: 'Compile the schematic netlist (Protel2) and optionally diff every ref|pin->net against an expected JSON file. pin.net fields only reflect net labels; this compiled netlist is the source of truth for connectivity.',
     parameters: {
       compareFile: { type: 'string', description: 'Path of expected ref|pin->net JSON.' },
+      full: { type: 'boolean', description: 'Return every net inline instead of count + net names.' },
       session: { type: 'string' },
     },
     output: { schema: { type: 'object', additionalProperties: true }, render: jsonRender },
     async execute(args) {
       const code = `${RETRY_GETALL}
-await eda.dmt_EditorControl.openDocument(${JSON.stringify(needUuid(cfg, 'sch'))});
-await eda.dmt_EditorControl.waitForDocumentReady(${JSON.stringify(needUuid(cfg, 'sch'))}, 30000);
+${readyPrelude(needUuid(cfg, 'sch'))}
 return await eda.sch_Netlist.getNetlist('Protel2');`
       const text = (await call(cfg, owned, args.session, code, undefined, 120000)) as unknown as string
       const nl = parseProtel2(text)
@@ -616,9 +644,15 @@ return await eda.sch_Netlist.getNetlist('Protel2');`
       for (const [ref, pins] of Object.entries(nl.comps)) for (const [pin, net] of Object.entries(pins)) actual[`${ref}|${pin}`] = net
       if (args.compareFile) {
         const expected = JSON.parse(fs.readFileSync(args.compareFile, 'utf8')) as Record<string, string>
-        return { nets: Object.keys(nl.nets).length, ...diffNets(actual, expected) } as unknown as Record<string, Json>
+        const d = diffNets(actual, expected)
+        return { nets: Object.keys(nl.nets).length, checked: d.checked, ...brief(cfg, 'sch-net-mismatches', d.mismatches) } as unknown as Record<string, Json>
       }
-      return { nets: Object.keys(nl.nets).length, comps: Object.keys(nl.comps).length, netlist: nl.nets } as unknown as Record<string, Json>
+      const nets = Object.entries(nl.nets).map(([net, pins]) => ({ net, pins: pins.length }))
+      return {
+        nets: nets.length,
+        comps: Object.keys(nl.comps).length,
+        ...(args.full ? { netlist: nl.nets } : brief(cfg, 'sch-nets', nets, 40)),
+      } as unknown as Record<string, Json>
     },
   }))
 }
