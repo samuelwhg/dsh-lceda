@@ -27,7 +27,36 @@ dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.gi
 ```
 
 Restart that profile. The bundle's `cordis.patch.yml` inserts the `dsh-lceda` row, so
-the eight `lceda_*` tools and the `lceda-dev` skill appear without hand-editing config.
+the nine `lceda_*` tools and the `lceda-dev` skill appear without hand-editing config.
+
+## Environment
+
+Hard requirements — the plugin cannot work without these:
+
+| what | requirement | check |
+| --- | --- | --- |
+| DSH | >= 0.2.2 (Cordis 4); Node >= 22.19 | `dsh --version`, `node --version` |
+| LCEDA Pro | installed on Windows, running version **4.1.99.7adca3d2** when this build of the API table was verified | `"<exe>" --help` prints `JLCEDA Pro <version>` |
+| DSH host | WSL **or** a native Windows DSH desktop — both are supported | `lceda_session {"action":"list"}` answers |
+| the project | a `.eprj3` in the session workspace (project level, nothing to configure) or `projectPath` in the config | `lceda_run {"doc":"pcb","code":"Object.keys(eda).length"}` |
+
+Optional, only when you use that feature:
+
+| what | needed by | note |
+| --- | --- | --- |
+| Java (`javaBin`, default `java`) | `lceda_route` | `java -version`; any JRE 17+ runs Freerouting |
+| `freeroutingJar` + `sesDirWin` | `lceda_route` | jar downloaded by you; `sesDirWin` must be a Windows-visible dir |
+| `gh` (authenticated) | `lceda_report submit` | without it `submit` returns a pre-filled issue link |
+| network | nothing | the plugin never opens a socket; only your own `gh` talks to GitHub |
+
+Two things bite people:
+
+- **The LCEDA Pro GUI counts.** While your GUI has the project open, the plugin refuses
+  to write (`.eprj3` is two-way synced, both sides would overwrite each other). Close the
+  GUI, or set `allowGuiConcurrent: true` if you accept the risk.
+- **Windows paths.** The exe wants `D:\...`; under WSL the plugin translates the
+  `sesDirWin` copy for you, but `projectPath` / `freeroutingJar` should be paths that
+  exist on this machine. `exePath` is auto-detected, so a D: or E: install is fine.
 
 ## Let an AI install it
 
@@ -36,8 +65,9 @@ installs, configures and smoke-tests the plugin without you hunting for document
 
 > Install the `dsh-lceda` plugin and get it working on my project.
 >
-> 1. Check prerequisites: `node -v` (>= 22.19), `dsh --version` (>= 0.2.2), and that
->    LCEDA Pro is installed on this machine. Ask me which DSH profile to use.
+> 1. Check prerequisites against the Environment section of this README: `node -v`
+>    (>= 22.19), `dsh --version` (>= 0.2.2), and that LCEDA Pro is installed on this
+>    machine (report its version from `--help`). Ask me which DSH profile to use.
 > 2. Install the `gh` CLI — `lceda_report` uses it to search and file issues. Optional
 >    (without it the plugin still records locally and hands you a prefilled issue link),
 >    but this is the one dependency a user rarely has: check `gh --version`; if missing,
@@ -68,7 +98,9 @@ installs, configures and smoke-tests the plugin without you hunting for document
 >    (must return a positive count for the PCB API surface).
 > 7. Stop before touching the design. `lceda_check` and `lceda_export` are read-only;
 >    `lceda_run`, `lceda_pour`, `lceda_sch_wire`, `lceda_sch_netlist` and `lceda_route`
->    can change files — tell me what you would run first and wait for my go-ahead.
+>    can change files — tell me what you would run first and wait for my go-ahead. Read
+>    the Red lines section before the first write, and never run a write while my LCEDA
+>    Pro GUI has the project open.
 >
 > If anything fails, quote the exact error instead of improvising: every failure message
 > names its next step and the README anchor that explains it. Stale sessions are the
@@ -189,6 +221,29 @@ on your build — nothing is promised. Probe before relying on one
 (`lceda_run {"doc":"pcb","code":"Object.keys(eda)"}`) and treat a missing method as
 unavailable. LCEDA Pro updates can rename or drop these calls; when a tool starts
 failing with `... is not a function`, that is the signal.
+
+## Red lines
+
+These are not style advice; breaking one damages a real board. The same list ships
+inside the `lceda-dev` skill, so the model sees it before it touches anything.
+
+1. **No writes while your GUI has the project open.** `.eprj3` is two-way synced — the
+   editor and the plugin would overwrite each other's saves.
+2. **Never overwrite `PCB1.epcb2` wholesale.** Shell objects (enclosure, mounting holes,
+   screws) exist only in some revisions; a whole-file write loses them. Splice line
+   blocks instead.
+3. **After `importChanges` (schematic → PCB) re-check every pad net** with
+   `lceda_check nets`. A wrong symbol pin order scrambles the PCB nets. A non-polar
+   capacitor with pin 1/2 swapped between sch and pcb is cosmetic — don't run
+   `importChanges` just for that.
+4. **No solid copper pour on an inner layer that carries signals** (it shorts them).
+   GND on top/bottom pour plus return vias; a TH GND pad left with a clearance ring
+   needs a short track to an existing GND via.
+5. **Headless cannot do everything**: symbol creation, footprint reassignment,
+   teardrops, some GUI dialogs. The tools hand back a description instead of faking
+   success — do those in the GUI.
+6. **Add a GND return via next to every signal via**, and run teardrops before pouring
+   (GUI: 工具 → 泪滴).
 
 ## Permissions
 

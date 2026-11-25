@@ -22,8 +22,36 @@ dsh plugin --profile <profile> add /path/to/dsh-lceda
 dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.git
 ```
 
-重启该 profile。bundle 的 `cordis.patch.yml` 会插入 `dsh-lceda` 这一行，八个 `lceda_*`
+重启该 profile。bundle 的 `cordis.patch.yml` 会插入 `dsh-lceda` 这一行，九个 `lceda_*`
 工具与 `lceda-dev` skill 自动出现，无需手改配置。
+
+## 环境
+
+硬性要求——缺了就跑不起来：
+
+| 项 | 要求 | 怎么确认 |
+| --- | --- | --- |
+| DSH | >= 0.2.2（Cordis 4）；Node >= 22.19 | `dsh --version`、`node --version` |
+| LCEDA 专业版 | 装在 Windows 上；本插件的 API 表按 **4.1.99.7adca3d2** 核对 | `"<exe>" --help` 会打印 `JLCEDA Pro <版本>` |
+| DSH 宿主 | WSL **或** Windows 原生桌面端，都支持 | `lceda_session {"action":"list"}` 有回应 |
+| 工程 | 会话工作区里有 `.eprj3`（项目级，零配置）或配置 `projectPath` | `lceda_run {"doc":"pcb","code":"Object.keys(eda).length"}` |
+
+可选项，只在你用那个功能时需要：
+
+| 项 | 谁需要 | 说明 |
+| --- | --- | --- |
+| Java（`javaBin`，默认 `java`） | `lceda_route` | `java -version`；JRE 17+ 就能跑 Freerouting |
+| `freeroutingJar` + `sesDirWin` | `lceda_route` | jar 自己下载；`sesDirWin` 必须是 Windows 可见目录 |
+| `gh`（已登录） | `lceda_report submit` | 没装时 `submit` 返回预填 issue 链接 |
+| 网络 | 不需要 | 插件从不发请求；只有你自己的 `gh` 会连 GitHub |
+
+两个最容易踩的点：
+
+- **LCEDA 的 GUI 算占用。** GUI 开着这个工程时插件拒绝写（`.eprj3` 双向同步，两边互相覆盖）。
+  关掉 GUI，或接受风险设 `allowGuiConcurrent: true`。
+- **Windows 路径。** exe 要 `D:\...` 形式；WSL 下插件会替你翻译 `sesDirWin` 的拷贝，
+  但 `projectPath` / `freeroutingJar` 得是本机真实存在的路径。`exePath` 自动探测，
+  装在 D: 或 E: 盘都没关系。
 
 ## 让 AI 自己装
 
@@ -59,7 +87,8 @@ dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.gi
 >    （PCB API 面必须返回正整数）。
 > 7. 到这一步就停，别动设计。`lceda_check` 和 `lceda_export` 是只读的；`lceda_run`、
 >    `lceda_pour`、`lceda_sch_wire`、`lceda_sch_netlist`、`lceda_route` 会改文件——先告诉我你
->    准备跑什么，等我确认。
+>    准备跑什么，等我确认。第一次写之前先读「红线」一节，且 LCEDA 的 GUI 开着这个工程时
+>    绝不写。
 >
 > 任何一步失败，原样贴报错，不要自己猜着改：所有失败信息都带你下一步该干什么和
 > README 锚点。最常见原因是残留会话——`lceda_session {"action":"clean"}` 后重试一次。
@@ -167,6 +196,23 @@ handoff 而不是假装成功。`lceda_run` 能执行任意编辑器 JS，所以
 也许能跑，但没有任何保证——先探测
 （`lceda_run {"doc":"pcb","code":"Object.keys(eda)"}`），方法不存在就当不可用。
 LCEDA Pro 升级可能改名或移除这些调用；工具开始报 `... is not a function` 就是这个信号。
+
+## 红线
+
+这些不是风格建议，违反一条就会毁掉真实板子。同一份清单也随 `lceda-dev` skill 下发，
+模型动手前就能看到。
+
+1. **GUI 开着工程时不做写操作。** `.eprj3` 是双向同步的——编辑器和插件会互相覆盖对方的保存。
+2. **勿整文件覆盖 `PCB1.epcb2`。** 外壳对象（外壳、安装孔、螺丝柱）只存在于部分 revision，
+   整文件写会丢；要改就按行块 splice。
+3. **`importChanges`（原理图更新 PCB）后必须用 `lceda_check nets` 核对全部焊盘网表。**
+   符号脚序错会打乱 PCB 网络；非极性电容 sch/pcb 脚 1/2 相反只是外观问题，别为它跑
+   `importChanges`。
+4. **内层有信号走线时不铺实心铜**（会短路）。GND 靠顶/底铺铜 + 回流孔；TH GND 焊盘若留了
+   隔离环，需要一小段走线桥接到既有 GND 过孔。
+5. **headless 做不了全部**：符号创建、改封装引用、泪滴、部分 GUI 对话框——工具会返回说明
+   交给 GUI，不会假成功。
+6. **每个信号过孔旁边补 GND 回流孔**；铺铜前先做泪滴（GUI：工具→泪滴）。
 
 ## 权限
 
