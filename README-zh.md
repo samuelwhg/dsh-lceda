@@ -25,6 +25,13 @@ dsh plugin --profile <profile> add /path/to/dsh-lceda
 重启该 profile。bundle 的 `cordis.patch.yml` 会插入 `dsh-lceda` 这一行，十个 `lceda_*`
 工具与 `lceda-dev` skill 自动出现，无需手改配置。
 
+### 预设
+
+插件还会注册一个 **LCEDA hardware** 预设。预设之间没有继承，所以插件在激活时读宿主
+`standard` 预设的子插件列表，换进 LCEDA 人格——这样预设跟着你装的 DSH 版本走，而不是
+自带一份会过期的插件清单。做板子的会话在预设列表里选它即可，其它预设不受影响。宿主没有
+`standard` 预设时，插件会打印原因，只注册工具和 skill。
+
 ## 环境
 
 硬性要求——缺了就跑不起来：

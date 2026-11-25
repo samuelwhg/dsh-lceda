@@ -27,6 +27,7 @@ import {
 import type { ConnPad, ConnSeg, ConnVia } from './decode'
 import { checkPreset, DEFAULT_PRESET, netKind, planFor } from './rules'
 import type { Preset } from './rules'
+import { hostPlugins, lcedaPreset } from './preset'
 
 type Json = null | boolean | number | string | Json[] | { [k: string]: Json }
 
@@ -310,6 +311,46 @@ export function apply(ctx: Context, config: ConfigShape): void {
       sctx.effect(() => skills.register({ name: 'lceda-dev', source: 'bundled', description, content, resourceBase: { kind: 'directory', path: dir } }), 'dsh-lceda skill lceda-dev')
     } catch (e) {
       console.warn(`dsh-lceda: skill lceda-dev not registered: ${String((e as Error).message)}`)
+    }
+  })
+
+  // Presets cannot inherit, so the shipped one copies the host's `standard` plugin list at activation.
+  ctx.inject(['agentPresets'], (pctx) => {
+    type LoaderEntry = { options?: { name?: unknown; config?: unknown } }
+    const scoped = pctx as unknown as {
+      agentPresets: { register: (preset: unknown) => Promise<() => Promise<void>> }
+      loader?: { entries: () => Iterable<LoaderEntry> }
+      get?: (name: string) => unknown
+      on?: (event: string, listener: () => void) => (() => void) | undefined
+    }
+    const loader = scoped.loader ?? (scoped.get?.('loader') as typeof scoped.loader)
+    let registered = false
+    const attempt = (): boolean => {
+      if (registered) return true
+      const plugins = hostPlugins(loader?.entries?.() ?? [])
+      if (!plugins) return false
+      registered = true
+      pctx.effect(async () => {
+        const off = await scoped.agentPresets.register(lcedaPreset(plugins))
+        return () => off()
+      }, 'dsh-lceda preset lceda')
+      return true
+    }
+    try {
+      if (attempt()) return
+      // The host may still be loading its own preset rows: watch until the source one appears.
+      pctx.effect(() => {
+        const stop = scoped.on?.('loader/entry-init', () => {
+          try {
+            if (attempt()) stop?.()
+          } catch (e) {
+            console.warn(`dsh-lceda: preset lceda not registered: ${String((e as Error).message)}`)
+          }
+        })
+        return () => stop?.()
+      }, 'dsh-lceda preset watcher')
+    } catch (e) {
+      console.warn(`dsh-lceda: preset lceda not registered: ${String((e as Error).message)}`)
     }
   })
 

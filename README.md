@@ -29,6 +29,15 @@ dsh plugin --profile <profile> add /path/to/dsh-lceda
 Restart that profile. The bundle's `cordis.patch.yml` inserts the `dsh-lceda` row, so
 the ten `lceda_*` tools and the `lceda-dev` skill appear without hand-editing config.
 
+### Agent preset
+
+The plugin also registers a preset called **LCEDA hardware**. Presets cannot inherit, so
+at activation the plugin reads the child plugin list of your host's `standard` preset and
+swaps in an LCEDA persona — that way the preset tracks whatever DSH version you run
+instead of a plugin list that drifts. Pick it in the preset roster for sessions that do
+board work; every other preset is left alone. If your host ships no `standard` preset,
+the plugin logs the reason and registers only the tools and the skill.
+
 ## Environment
 
 Hard requirements — the plugin cannot work without these:

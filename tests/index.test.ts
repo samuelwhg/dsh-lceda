@@ -27,20 +27,61 @@ function cliChild(envelope: unknown) {
 function fakeCtx() {
   const tools: Record<string, { execute: (args: Record<string, unknown>) => Promise<unknown> }> = {}
   const skills: Array<{ name: string; description?: string; source?: string; content: string; resourceBase?: { kind: string; path: string } }> = []
+  const presets: Array<{ id: string; name?: string; plugins: Array<Record<string, unknown>> }> = []
   const disposers: Array<() => unknown> = []
-  // cordis runs the effect body immediately and keeps what it returns as the disposer.
+  // A host that ships the `standard` preset, like the web bundle does.
+  const standardRow = { options: { name: '@deepseek-ai/dsh-agent-preset', config: { id: 'standard', order: 1, plugins: [{ id: 'persona', name: '@deepseek-ai/dsh-persona', config: { prefix: 'base' } }, { id: 'tool-fs', name: '@deepseek-ai/dsh-tool-fs' }] } } }
+  let rows: unknown[] = [standardRow]
+  const loader = { entries: () => rows as Array<{ options?: { name?: unknown; config?: unknown } }> }
+  const listeners: Record<string, () => void> = {}
+  const host = {
+    /** Simulate the loader finishing a row after our plugin already activated. */
+    addStandard: () => { rows = [standardRow] },
+    dropStandard: () => { rows = [] },
+    emit: (event: string) => listeners[event]?.(),
+  }
+  const agentPresets = {
+    register: async (preset: { id: string; name?: string; plugins: Array<Record<string, unknown>> }) => {
+      presets.push(preset)
+      return async () => {
+        const at = presets.indexOf(preset)
+        if (at >= 0) presets.splice(at, 1)
+      }
+    },
+  }
+  // cordis runs the effect body immediately and keeps what it returns as the disposer,
+  // awaiting it when the body is async.
   const effect = (fn: () => unknown) => {
-    const dispose = fn()
-    if (typeof dispose === 'function') disposers.push(dispose as () => unknown)
+    const out = fn()
+    if (typeof out === 'function') disposers.push(out as () => unknown)
+    else if (out && typeof (out as Promise<unknown>).then === 'function') {
+      disposers.push(async () => {
+        const dispose = await (out as Promise<unknown>)
+        if (typeof dispose === 'function') await (dispose as () => unknown)()
+      })
+    }
   }
   return {
     tools,
     skills,
+    presets,
     disposers,
+    host,
     ctx: {
       tools: { register: (t: { name: string }) => { tools[t.name] = t as never } },
       effect,
-      inject: (_deps: string[], cb: (c: unknown) => void) => cb({ skills: { register: (s: never) => { skills.push(s); return () => {} } }, effect }),
+      inject: (_deps: string[], cb: (c: unknown) => void) =>
+        cb({
+          skills: { register: (s: never) => { skills.push(s); return () => {} } },
+          agentPresets,
+          loader,
+          effect,
+          get: (name: string) => (name === 'loader' ? loader : undefined),
+          on: (event: string, listener: () => void) => {
+            listeners[event] = listener
+            return () => delete listeners[event]
+          },
+        }),
     },
   }
 }
@@ -127,6 +168,37 @@ describe('plugin wiring', () => {
     expect(skill!.content).toContain('勿整文件覆盖')
     expect(skill!.content.startsWith('---')).toBe(false)
     expect(skill!.resourceBase?.kind).toBe('directory')
+  })
+
+  it('registers the lceda preset built from the host standard preset, and drops it on dispose', async () => {
+    const { ctx, presets, disposers } = fakeCtx()
+    apply(ctx as never, Config({} as never))
+    await Promise.resolve()
+
+    expect(presets).toHaveLength(1)
+    expect(presets[0].id).toBe('lceda')
+    const names = presets[0].plugins.map((p) => p.name)
+    expect(names).toContain('@deepseek-ai/dsh-tool-fs')
+    expect(names.filter((n) => n === '@deepseek-ai/dsh-persona')).toHaveLength(1)
+    const persona = presets[0].plugins[0] as { config: { prefix: string } }
+    expect(persona.config.prefix).toContain('lceda_* tools')
+
+    for (const off of disposers) await off()
+    expect(presets).toHaveLength(0)
+  })
+
+  it('waits for a host preset that loads after the plugin, then registers', async () => {
+    const { ctx, presets, host } = fakeCtx()
+    host.dropStandard()
+    apply(ctx as never, Config({} as never))
+    await Promise.resolve()
+    expect(presets).toHaveLength(0)
+
+    host.addStandard()
+    host.emit('loader/entry-init')
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(presets.map((p) => p.id)).toEqual(['lceda'])
   })
 
   it('closes the sessions it opened on dispose', async () => {
