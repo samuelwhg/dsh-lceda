@@ -200,7 +200,7 @@ write is followed by a read-back: an import that landed no track is an error, no
 partial success.
 
 The bundled `lceda-dev` skill carries the workflow order and the red lines (do not
-write while the GUI holds the project, never overwrite `PCB1.epcb2` wholesale, never
+write while the GUI holds the project, never overwrite the board file (`.epcb2`) wholesale, never
 pour solid copper on inner signal layers, always re-check all pad nets after
 `importChanges`, hand back to the GUI for symbols/teardrops/dialogs).
 
@@ -236,9 +236,9 @@ inside the `lceda-dev` skill, so the model sees it before it touches anything.
 
 1. **No writes while your GUI has the project open.** `.eprj3` is two-way synced — the
    editor and the plugin would overwrite each other's saves.
-2. **Never overwrite `PCB1.epcb2` wholesale.** Shell objects (enclosure, mounting holes,
-   screws) exist only in some revisions; a whole-file write loses them. Splice line
-   blocks instead.
+2. **Never overwrite the board file (`.epcb2`) wholesale.** Objects that exist only in
+   some revisions (constraints, footprints, hand-placed geometry) are lost by a
+   whole-file write. Splice line blocks instead.
 3. **After `importChanges` (schematic → PCB) re-check every pad net** with
    `lceda_check nets`. A wrong symbol pin order scrambles the PCB nets. A non-polar
    capacitor with pin 1/2 swapped between sch and pcb is cosmetic — don't run

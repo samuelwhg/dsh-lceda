@@ -24,7 +24,7 @@ description: 嘉立创 EDA Pro（LCEDA）headless 开发流程与红线。当用
 
 ## 红线
 1. **用户 GUI 开着时不做写操作**（.eprj3 双向同步会互相覆盖）；工具默认拒写，除非配置 allowGuiConcurrent。
-2. **勿整文件覆盖 PCB1.epcb2**：外壳/螺丝柱/安装孔等 shell 对象只存在于某些 revisions，整文件覆盖会丢改型；合并用行块 splice。
+2. **勿整文件覆盖板文件（.epcb2）**：只在某些 revisions 里存在的对象（约束、封装、手工几何）会丢；合并用行块 splice。
 3. **importChanges（从原理图更新PCB）后必须核对全部焊盘网表**（lceda_check nets）：sch 符号脚序错会打乱 PCB 网络；非极性电容 sch/pcb 脚 1/2 相反是 cosmetic，不要为它跑 importChanges。
 4. **内层不铺实心铜**当内层有信号走线（会短路）；GND 靠顶/底铺铜+回流孔，TH GND 焊盘若留隔离环需短线桥接到既有 GND 过孔。
 5. headless 做不了：符号创建/改封装引用/泪滴/部分 GUI 对话框 → 返回 handoff 说明交用户 GUI，不要假成功。
