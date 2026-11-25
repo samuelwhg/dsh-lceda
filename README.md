@@ -49,10 +49,13 @@ installs, configures and smoke-tests the plugin without you hunting for document
 >    `dsh plugin --profile <profile> add git+https://github.com/samuelwhg/dsh-lceda.git`
 >    (from a local checkout: `add /path/to/dsh-lceda`). Then confirm the bundle inserted
 >    an `id: dsh-lceda` row.
-> 4. Ask me for the `.eprj3` project path. Leave `exePath` and `spawnCwd` empty — they
->    are auto-detected (`Program Files{, (x86)}\lceda-pro` on every drive). Only set
->    `exePath` if I say LCEDA Pro lives somewhere unusual.
-> 5. Write `projectPath` into `<profile>/cordis.patch.yml` under the existing
+> 4. Ask me for the `.eprj3` project path and whether this DSH runs several projects in
+>    one workspace. Leave `exePath` and `spawnCwd` empty — they are auto-detected
+>    (`Program Files{, (x86)}\lceda-pro` on every drive). Only set `exePath` if I say
+>    LCEDA Pro lives somewhere unusual.
+> 5. Usually write nothing: a session started in the project folder picks up the only
+>    `.eprj3` there. Only when the workspace holds several (or I open a project from
+>    elsewhere) write `projectPath` into `<profile>/cordis.patch.yml` under the existing
 >    `id: dsh-lceda` row — merge into that row, never add a second one. Leave `pcbUuid`
 >    and `schUuid` empty: they are derived from the project file (first board / first
 >    schematic page). Only set them when my project has several and I want a specific
@@ -73,11 +76,11 @@ installs, configures and smoke-tests the plugin without you hunting for document
 
 ## Configuration
 
-Per-project values ship with **no defaults**: set `projectPath` for your own project
-(`pcbUuid` / `schUuid` are derived from it — the first board and the first schematic
-page — and only need setting when a project has several), and — for autorouting —
-`freeroutingJar` / `sesDirWin`. Add them to the profile that installed the plugin,
-under the same `id` the bundle inserted:
+Most projects need **no configuration at all**: run the session inside the project
+folder and the plugin uses the only `.eprj3` it finds there (at most two levels down),
+deriving its document ids. Set `projectPath` only when a workspace holds several
+projects, and — for autorouting — `freeroutingJar` / `sesDirWin`. Values go on the
+profile row that installed the plugin, under the same `id` the bundle inserted:
 
 ```yaml
 # <profile>/cordis.patch.yml
@@ -94,7 +97,7 @@ under the same `id` the bundle inserted:
 | --- | --- | --- |
 | `exePath` | *(empty)* | Path to `lceda-pro.exe`: WSL `/mnt/d/Program Files/…` or native Windows `D:\Program Files\…`. Empty: auto-detected under `Program Files{, (x86)}` on every drive (WSL `/mnt/<letter>`, Windows existing `C:`–`Z:`), so a D:/E: install works too |
 | `spawnCwd` | *(empty)* | cwd for the Windows exe; empty = the drive root of `exePath` (a drive root avoids UNC cwd issues) |
-| `projectPath` | *(empty)* | Windows `.eprj3` path opened headless |
+| `projectPath` | *(empty)* | Windows `.eprj3` opened headless. Empty = the only `.eprj3` in the session workspace; set it when there are several |
 | `pcbUuid` | *(empty)* | PCB document id for the `openDocument` prelude; empty = the first board inside `projectPath` |
 | `schUuid` | *(empty)* | schematic page id for the `openDocument` prelude; empty = the first schematic page inside `projectPath` |
 | `freeroutingJar` | *(empty)* | Freerouting jar; required by `lceda_route` |
@@ -112,9 +115,23 @@ GUI — the keys of `profile.pcbs` / `profile.sheets` in that file *are* those i
 (first key wins when there are several). Invalid config fails at load with the field
 path, e.g. `$.invokeTimeoutMs expected number but got nope`.
 
+### Where settings live
+
+| what | project level | profile (global) |
+| --- | --- | --- |
+| which project | where the session runs: the only `.eprj3` under it is used | `projectPath` on the bundle row |
+| the `lceda-dev` skill | `<project>/.dsh/skills/lceda-dev/SKILL.md` (or `.agents/skills/…`) outranks the bundled copy | shipped in the package, registered in memory on install |
+| the nine tools | — | profile |
+| MCP server | not used: the plugin drives `lceda-pro`'s own CLI, so nothing is written to `.dsh/mcp.json` | — |
+
+DSH has no per-project plugin config file: the project is chosen by where the session
+runs, everything else is the profile row above. No agent preset is shipped either —
+installing the bundle registers the tools and the skill for the whole profile, so any
+agent already has them.
+
 ## Quickstart
 
-1. Set `projectPath` as above and restart the profile (leave `exePath` empty unless LCEDA Pro is installed somewhere unusual — `lceda_session list` names every path it searched when it cannot find the exe).
+1. Start the session in your project folder — nothing to configure unless the workspace holds several `.eprj3` files (set `projectPath` as above then). Leave `exePath` empty unless LCEDA Pro is installed somewhere unusual: `lceda_session list` names every path it searched when it cannot find the exe.
 2. `lceda_session` `{ "action": "list" }` — confirms the CLI handshake, no session opened yet.
 3. `lceda_session` `{ "action": "open" }` — opens the project headless, returns `sessionId`.
 4. `lceda_run` `{ "code": "return Object.keys(eda).filter(k => k.startsWith('pcb_'))" }` — the PCB API surface of your installed editor build.
@@ -239,8 +256,8 @@ sessions it owns.
 | --- | --- |
 | `LCEDA Pro not found: install it, or set config exePath ...` | install LCEDA Pro, or set `exePath` to `lceda-pro.exe` (WSL `/mnt/d/…`, Windows `D:\…`); the message lists every drive root it probed |
 | `cannot start "<exePath>" ... ENOENT` | the configured path does not exist — fix `exePath`, or clear it to fall back to auto-detection |
-| `no project path` | pass a `.eprj3` path to `lceda_session open` or set `projectPath` |
-| `config pcbUuid is not set` / `schUuid` | set the document id for that board/page (see Configuration) |
+| `no project path` / `found N .eprj3 files` | pass a `.eprj3` path, or set `projectPath` when the workspace holds several |
+| `config pcbUuid is not set` / `schUuid` | the project has no board/page of that kind — set the document id explicitly (see Configuration) |
 | `user GUI session open (...)` | close the GUI, or set `allowGuiConcurrent: true` knowing `.eprj3` sync can overwrite |
 | a tool fails with `... is not a function` | your LCEDA Pro build renamed or dropped that call: probe `lceda_run {"code":"Object.keys(eda)"}`, see [API surface and scope](#api-surface-and-scope) |
 | `getAll` returns `null`, or the session dies | `lceda_session` `{ "action": "clean" }`, retry; headless canvas subscriptions are fragile |

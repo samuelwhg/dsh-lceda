@@ -8,7 +8,7 @@ import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { Config } from './config'
 import type { Config as ConfigShape } from './config'
-import { closeSession, guardGui, invoke, listSessions, openHeadless, readyPrelude, RETRY_GETALL } from './cli'
+import { closeSession, guardGui, invoke, listSessions, openHeadless, readyPrelude, RETRY_GETALL, soleProject } from './cli'
 import { b64ToBuffer, connectivity, diffNets, normalizeCsv, parseProtel2 } from './decode'
 import {
   countable,
@@ -104,15 +104,26 @@ export function projectIds(projectPath: string): ProjectIds {
   }
 }
 
-/** Configured id, else the first one of that kind inside the configured project. */
+/** Configured project, else the only .eprj3 in the workspace; '' when neither resolves. */
+export function projectOf(cfg: ConfigShape): string {
+  if (cfg.projectPath) return cfg.projectPath
+  try {
+    return soleProject()
+  } catch {
+    return ''
+  }
+}
+
+/** Configured id, else the first one of that kind inside the project. */
 export function needUuid(cfg: ConfigShape, kind: 'pcb' | 'sch'): string {
   const what = kind === 'pcb' ? 'board' : 'schematic page'
-  const u = (kind === 'pcb' ? cfg.pcbUuid : cfg.schUuid) || projectIds(cfg.projectPath)[kind]
+  const project = projectOf(cfg)
+  const u = (kind === 'pcb' ? cfg.pcbUuid : cfg.schUuid) || projectIds(project)[kind]
   if (!u) {
     throw new Error(
-      `config ${kind}Uuid is not set, and config projectPath ` +
-        (cfg.projectPath ? `("${cfg.projectPath}") contains no ${what}` : 'is empty') +
-        `: set projectPath to a project that has one, or set ${kind}Uuid directly (see README.md#configuration)`,
+      `config ${kind}Uuid is not set and ` +
+        (project ? `project "${project}" has no ${what}` : 'no .eprj3 was found') +
+        `; pass the project path, set config projectPath, or set ${kind}Uuid directly (see README.md#configuration)`,
     )
   }
   return u
@@ -287,7 +298,7 @@ export function apply(ctx: Context, config: ConfigShape): void {
     description: 'Manage LCEDA Pro headless sessions: open (headless, returns sessionId), list, close (destroy), clean (close stale CLI-origin sessions not owned by this plugin). User GUI sessions are never closed.',
     parameters: {
       action: { type: 'string', required: true, description: 'open | list | close | clean' },
-      path: { type: 'string', description: 'Windows .eprj3 path for open (default config projectPath).' },
+      path: { type: 'string', description: "Windows .eprj3 path for open (default: config projectPath, else the only .eprj3 in the workspace)." },
       session: { type: 'string', description: 'Session id for close.' },
     },
     output: { schema: { type: 'object', additionalProperties: true }, render: jsonRender },

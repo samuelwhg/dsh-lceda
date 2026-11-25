@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
 import { access, readdir } from 'node:fs/promises'
+import { readdirSync } from 'node:fs'
 import { join, parse } from 'node:path'
 import type { Config } from './config'
 
@@ -49,6 +50,48 @@ export async function driveRoots(
   }
   const mounts = await readdir('/mnt').catch(() => [] as string[])
   return mounts.filter((d) => /^[a-z]$/i.test(d)).sort().map((d) => `/mnt/${d}`)
+}
+
+/** WSL path → the Windows form the LCEDA CLI expects (`/mnt/d/x` → `D:\x`); other paths pass through. */
+export function wslToWin(p: string): string {
+  const m = /^\/mnt\/([a-z])(\/.*)?$/i.exec(p)
+  return m ? `${m[1].toUpperCase()}:${(m[2] ?? '').replace(/\//g, '\\')}` : p
+}
+
+const PROJECT_EXT = /\.eprj3$/i
+
+/** `.eprj3` files at or two levels below `dir`: the project-level config, so a project needs no settings. */
+export function workspaceProjects(dir = process.cwd(), depth = 2): string[] {
+  const found: string[] = []
+  const walk = (d: string, left: number): void => {
+    let entries
+    try {
+      entries = readdirSync(d, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const e of entries) {
+      const p = join(d, e.name)
+      if (e.isFile() && PROJECT_EXT.test(e.name)) found.push(p)
+      else if (e.isDirectory() && left > 1 && e.name !== 'node_modules' && e.name !== '.git') walk(p, left - 1)
+    }
+  }
+  walk(dir, depth)
+  return found.sort()
+}
+
+/** The project to work on: explicit argument, else the only `.eprj3` in the workspace. */
+export function soleProject(explicit?: string, dir = process.cwd()): string {
+  if (explicit) return explicit
+  const hits = workspaceProjects(dir)
+  if (hits.length === 1) return wslToWin(hits[0])
+  throw new Error(
+    (hits.length === 0
+      ? 'no project path: pass a .eprj3 path, or set config projectPath, or run in a workspace that has one'
+      : `found ${hits.length} .eprj3 files in the workspace, so pick one: pass its path to the tool, or set config projectPath`) +
+      (hits.length > 1 ? ` (${hits.map((h) => `"${wslToWin(h)}"`).join(', ')})` : '') +
+      ' (see README.md#configuration)',
+  )
 }
 
 let autoExe: string | undefined
@@ -132,8 +175,7 @@ export async function listSessions(cfg: Config): Promise<SessionInfo[]> {
 }
 
 export async function openHeadless(cfg: Config, path?: string): Promise<string> {
-  const p = path ?? cfg.projectPath
-  if (!p) throw new Error('no project path: pass a .eprj3 path or set config projectPath (see README.md#configuration)')
+  const p = path || cfg.projectPath || soleProject()
   const env = await runCli(cfg, ['open', '--headless', 'true', '--path', p], undefined, 90000)
   if (!env.ok) throw new Error(`open failed: ${env.error?.message ?? env.raw.slice(0, 300)}`)
   const v = env.value as { sessionId?: string }

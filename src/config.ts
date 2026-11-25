@@ -19,7 +19,7 @@ export interface Config {
 export const Config: Schema<Config> = Schema.object({
   exePath: Schema.string().default('').description('Path to lceda-pro.exe: WSL /mnt/d/Program Files/lceda-pro/lceda-pro.exe, or native Windows D:\\Program Files\\lceda-pro\\lceda-pro.exe. Empty: auto-detected on every mounted drive (WSL: /mnt/<letter>, Windows: existing C:..Z:).'),
   spawnCwd: Schema.string().default('').description('cwd for spawning the Windows exe. Empty: the drive root of exePath (a drive root avoids UNC cwd issues).'),
-  projectPath: Schema.string().default('').description('Windows-side .eprj3 project path opened headless. Required: set per project.'),
+  projectPath: Schema.string().default('').description('Windows-side .eprj3 opened headless. Leave empty to use the only .eprj3 in the session workspace; set it when a workspace has several.'),
   pcbUuid: Schema.string().default('').description('PCB document uuid for openDocument prelude. Required: set per project.'),
   schUuid: Schema.string().default('').description('Schematic page uuid for openDocument prelude. Required: set per project.'),
   freeroutingJar: Schema.string().default('').description('Freerouting jar path. Required for lceda_route.'),

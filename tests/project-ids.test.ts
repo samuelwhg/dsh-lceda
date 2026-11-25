@@ -27,8 +27,8 @@ describe('document ids from the project file', () => {
   it('names both ways out when neither config nor project provides an id', async () => {
     const path = await fixture({ sheets: { bbb222: {} } })
     expect(() => needUuid(Config({ projectPath: path } as never), 'pcb')).toThrow('pcbUuid is not set')
-    expect(() => needUuid(Config({ projectPath: path } as never), 'pcb')).toThrow('contains no board')
-    expect(() => needUuid(Config({} as never), 'sch')).toThrow('projectPath is empty')
+    expect(() => needUuid(Config({ projectPath: path } as never), 'pcb')).toThrow('has no board')
+    expect(() => needUuid(Config({} as never), 'sch')).toThrow('no .eprj3 was found')
   })
 
   it('derives ids again after the project file changes', async () => {

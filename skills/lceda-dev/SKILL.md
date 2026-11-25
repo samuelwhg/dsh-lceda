@@ -5,7 +5,7 @@ description: 嘉立创 EDA Pro（LCEDA）headless 开发流程与红线。当用
 
 # LCEDA 开发（dsh-lceda）
 
-本页只记操作顺序与红线；工程路径与文档 uuid 由插件配置提供（projectPath 必填；pcbUuid/schUuid 留空时自动取工程文件里的第一块板 / 第一张原理图页）。
+本页只记操作顺序与红线；工程路径不用手配：会话开在工程文件夹里，插件就用那里唯一的 `.eprj3`（有多个时才需要 `projectPath`）；`pcbUuid`/`schUuid` 留空时自动取工程文件里的第一块板 / 第一张原理图页。
 
 ## 工具选择
 - 会话：`lceda_session` open/list/close/clean。**动手前先 clean**：zombie headless 会话会让 getAll 返回 null。

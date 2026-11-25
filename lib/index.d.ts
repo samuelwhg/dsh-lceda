@@ -23,7 +23,9 @@ interface ProjectIds {
   sch?: string;
 }
 declare function projectIds(projectPath: string): ProjectIds;
-/** Configured id, else the first one of that kind inside the configured project. */
+/** Configured project, else the only .eprj3 in the workspace; '' when neither resolves. */
+declare function projectOf(cfg: Config): string;
+/** Configured id, else the first one of that kind inside the project. */
 declare function needUuid(cfg: Config, kind: 'pcb' | 'sch'): string;
 declare function apply(ctx: Context, config: Config): void;
-export { Config, apply, inject, name, needUuid, projectIds };
+export { Config, apply, inject, name, needUuid, projectIds, projectOf };
