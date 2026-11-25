@@ -1,6 +1,6 @@
 {
   "name": "dsh-lceda",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "DSH plugin for LCEDA Pro (JLCEDA) headless development: sessions, editor JS, autoroute via Freerouting, DRC/netlist/connectivity checks, copper pour, schematic wires, manufacturing exports.",
   "type": "module",
   "main": "lib/index.js",
@@ -37,6 +37,7 @@
     "cordis.patch.yml",
     "locale/*.json",
     "icon.svg",
+    "README-zh.md",
     "skills"
   ],
   "scripts": {

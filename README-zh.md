@@ -1,6 +1,6 @@
 # dsh-lceda
 
-[English](README.md) | 中文
+[English](https://github.com/samuelwhg/dsh-lceda/blob/main/README.md) | 中文
 
 DeepSeek Harness 的 **嘉立创 EDA（LCEDA 专业版）** 无头开发插件：让 agent 在真实
 `.eprj3` 工程上执行编辑器 JavaScript、用 Freerouting 自动布线、核对 DRC / 焊盘网表 /

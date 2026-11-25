@@ -1,6 +1,6 @@
 # dsh-lceda
 
-[中文](README-zh.md) | English
+[中文](https://github.com/samuelwhg/dsh-lceda/blob/main/README-zh.md) | English
 
 DeepSeek Harness plugin for **LCEDA Pro (嘉立创 EDA)** headless development: let the
 agent run editor JavaScript, autoroute with Freerouting, verify DRC / pad nets /
